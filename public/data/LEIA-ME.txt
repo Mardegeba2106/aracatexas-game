@@ -1,0 +1,5 @@
+Esta pasta recebe map.json ao executar o conversor:
+
+npm run prepare:map -- --source "C:/caminho/para/knoxify-master"
+
+O mapa não é preenchido com geometrias fictícias.

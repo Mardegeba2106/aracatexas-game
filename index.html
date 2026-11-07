@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#17221d" />
+    <meta name="description" content="Araçatexas — uma exploração pixel-art de Araçatuba." />
+    <title>Araçatexas · Protótipo jogável</title>
+  </head>
+  <body>
+    <main id="game-shell">
+      <div id="game"></div>
+      <div id="touch-controls" aria-label="Controles para celular">
+        <div class="dpad">
+          <button data-dir="up" class="dpad-up" aria-label="Cima">▲</button>
+          <button data-dir="left" class="dpad-left" aria-label="Esquerda">◀</button>
+          <button data-dir="down" class="dpad-down" aria-label="Baixo">▼</button>
+          <button data-dir="right" class="dpad-right" aria-label="Direita">▶</button>
+        </div>
+        <button id="touch-interact" aria-label="Interagir">E<br><small>INTERAGIR</small></button>
+      </div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

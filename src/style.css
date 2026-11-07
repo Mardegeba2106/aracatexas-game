@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background: #111a16;
+  color: #f4f0db;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+* { box-sizing: border-box; }
+html, body, #game-shell, #game {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body { background: #111a16; }
+#game-shell { position: relative; }
+#game canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+#touch-controls {
+  display: none;
+  position: fixed;
+  inset: auto 0 14px 0;
+  z-index: 5;
+  padding: 0 18px;
+  align-items: end;
+  justify-content: space-between;
+  pointer-events: none;
+  user-select: none;
+}
+.dpad {
+  display: grid;
+  grid-template-columns: 48px 48px 48px;
+  grid-template-rows: 48px 48px 48px;
+  gap: 4px;
+  pointer-events: auto;
+}
+.dpad button, #touch-interact {
+  border: 2px solid #a5b28a;
+  border-radius: 9px;
+  color: #fff6db;
+  background: rgba(30, 45, 37, .88);
+  box-shadow: 0 3px 0 #101a15, inset 0 1px 0 rgba(255,255,255,.15);
+  font-size: 20px;
+  font-weight: 800;
+  touch-action: none;
+}
+.dpad button:active, #touch-interact:active {
+  transform: translateY(2px);
+  background: #49634a;
+}
+.dpad-up { grid-column: 2; grid-row: 1; }
+.dpad-left { grid-column: 1; grid-row: 2; }
+.dpad-down { grid-column: 2; grid-row: 2; }
+.dpad-right { grid-column: 3; grid-row: 2; }
+#touch-interact {
+  pointer-events: auto;
+  width: 74px;
+  height: 66px;
+  border-radius: 50%;
+  font-size: 19px;
+  line-height: 17px;
+  margin: 0 7px 14px 0;
+}
+#touch-interact small {
+  font-size: 8px;
+  letter-spacing: 1px;
+}
+@media (pointer: coarse), (max-width: 760px) {
+  #touch-controls { display: flex; }
+}
+@media (max-width: 420px) {
+  .dpad { transform: scale(.88); transform-origin: bottom left; }
+  #touch-interact { transform: scale(.9); transform-origin: bottom right; }
+}
