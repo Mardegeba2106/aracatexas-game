@@ -43,13 +43,18 @@ export default class WorldScene extends Phaser.Scene {
     this.load.spritesheet("player", "/assets/player.png", {
       frameWidth: 32, frameHeight: 48
     });
-    this.load.spritesheet("tiles", "/assets/tileset.png", {
+    // Atlas oficial do Araçatexas: 8 colunas x 4 linhas, tiles de 32 px.
+    this.load.spritesheet("ara-tiles", "/assets/aracatexas_tileset.png", {
       frameWidth: 32, frameHeight: 32
+    });
+    // Prefabs oficiais: 4 colunas x 2 linhas, células de 64 px.
+    this.load.spritesheet("ara-buildings", "/assets/aracatexas_buildings.png", {
+      frameWidth: 64, frameHeight: 64
     });
   }
 
   create() {
-    this.cameras.main.setBackgroundColor("#3f6b43");
+    this.cameras.main.setBackgroundColor("#3f5b39");
     this.add.text(26, 22, "ARAÇATEXAS", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "21px",
       color: "#fff1cb", fontStyle: "bold", stroke: "#243329", strokeThickness: 5
@@ -118,10 +123,14 @@ export default class WorldScene extends Phaser.Scene {
 
   buildWorld() {
     const worldPx = WORLD_EXTENT * 2 * PPM;
-    this.add.tileSprite(-WORLD_EXTENT * PPM, -WORLD_EXTENT * PPM,
-      worldPx, worldPx, "tiles", 0).setOrigin(0).setDepth(-100);
+    // Texturas de uso repetido recortadas dos índices oficiais do atlas.
+    this.createAtlasTexture("ara-asphalt-local", 8);
+    this.createAtlasTexture("ara-asphalt-arterial", 11);
+    this.createAtlasTexture("ara-tree", 26);
+    this.createAtlasTexture("ara-shrub", 27);
+    // Fundo de grama sólido por enquanto: evita repetir o atlas inteiro como padrão.
 
-    this.drawBlocks();
+    // Lotes já definem o solo; evita sobrepor os limites de quadra em toda a tela.
     this.drawLots();
     this.drawRoads();
     this.drawBuildings();
@@ -129,49 +138,84 @@ export default class WorldScene extends Phaser.Scene {
     this.drawStreetLabels();
     this.createPlayer();
     this.drawMinimap();
+    console.info(
+      `[Araçatexas] Mundo renderizado: ${this.buildingCollision.length} construções, ${this.treeCollision.length} árvores.`
+    );
 
     this.cameras.main.setBounds(
       -WORLD_EXTENT * PPM, -WORLD_EXTENT * PPM, worldPx, worldPx
     );
     this.cameras.main.startFollow(this.player, true, 0.10, 0.10);
-    this.cameras.main.setZoom(this.scale.width < 700 ? 1.0 : 1.12);
+    this.cameras.main.setZoom(this.scale.width < 700 ? 0.85 : 0.75);
     this.layoutHud();
   }
 
+  createAtlasTexture(key, frameIndex) {
+    if (this.textures.exists(key)) return;
+    const atlas = this.textures.get("ara-tiles");
+    const frame = this.textures.getFrame("ara-tiles", frameIndex);
+    const source = atlas.getSourceImage();
+    const texture = this.textures.createCanvas(key, frame.cutWidth, frame.cutHeight);
+    texture.getContext().drawImage(
+      source,
+      frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight,
+      0, 0, frame.cutWidth, frame.cutHeight
+    );
+    texture.refresh();
+  }
+
   drawBlocks() {
-    const g = this.add.graphics().setDepth(-30);
+    const g = this.add.graphics().setDepth(-40);
     for (const block of this.mapData.blocks) {
       for (const poly of getFeaturePolygons(block, PPM)) {
         if (!poly.length || poly[0].length < 3) continue;
         const outer = poly[0].map(p => new Phaser.Geom.Point(p.x, p.y));
-        g.fillStyle(block.zone === "mixed" ? 0x9c956d : 0x87956a, 0.35);
+        g.fillStyle(block.zone === "mixed" ? 0x9c956d : 0x87956a, 0.10);
         g.fillPoints(outer, true, true);
-        g.lineStyle(2, 0x526b48, 0.26);
+        g.lineStyle(2, 0x526b48, 0.18);
         g.strokePoints(outer, true);
       }
     }
   }
 
   drawLots() {
-    const g = this.add.graphics().setDepth(-20);
+    const residentialMask = this.make.graphics({ x: 0, y: 0, add: false });
+    const commercialMask = this.make.graphics({ x: 0, y: 0, add: false });
+    const outlines = this.add.graphics().setDepth(-18);
+    residentialMask.fillStyle(0xffffff, 1);
+    commercialMask.fillStyle(0xffffff, 1);
+
     for (const lot of this.mapData.lots) {
+      const zone = String(lot.zone || "").toLowerCase();
+      const mask = /commercial|industrial|retail/.test(zone)
+        ? commercialMask
+        : residentialMask;
+
       for (const poly of getFeaturePolygons(lot, PPM)) {
         if (!poly.length || poly[0].length < 3) continue;
-        const ring = poly[0];
-        const points = ring.map(p => new Phaser.Geom.Point(p.x, p.y));
-        const seed = hash(lot.id);
-        const base = palette.lot[seed % palette.lot.length];
-        g.fillStyle(base, 0.87);
-        g.fillPoints(points, true, true);
-        g.lineStyle(1, 0x9eaa68, 0.32);
-        g.strokePoints(points, true);
-        if (seed % 4 === 0) {
-          const c = polygonCentroid(ring);
-          g.fillStyle(0xa2ae68, 0.25);
-          g.fillRect(c.x - 2, c.y - 2, 4, 4);
-        }
+        const points = poly[0].map(p => new Phaser.Geom.Point(p.x, p.y));
+        mask.fillPoints(points, true, true);
+
+        outlines.lineStyle(1, 0xb3ad82, 0.38);
+        outlines.strokePoints(points, true);
       }
     }
+
+    const worldX = -WORLD_EXTENT * PPM;
+    const worldY = -WORLD_EXTENT * PPM;
+    const worldPx = WORLD_EXTENT * 2 * PPM;
+
+    this.add.tileSprite(worldX, worldY, worldPx, worldPx, "ara-tiles", 20)
+      .setOrigin(0)
+      .setMask(residentialMask.createGeometryMask())
+      .setAlpha(0.92)
+      .setDepth(-19);
+
+    this.add.tileSprite(worldX, worldY, worldPx, worldPx, "ara-tiles", 21)
+      .setOrigin(0)
+      .setMask(commercialMask.createGeometryMask())
+      .setAlpha(0.96)
+      .setDepth(-19);
   }
 
   drawRoads() {
@@ -181,6 +225,23 @@ export default class WorldScene extends Phaser.Scene {
       for (const line of road.lines) {
         if (line.length < 2) continue;
         const points = line.map(p => toWorld(p, PPM));
+
+        // Textura do atlas sobre o asfalto, preservando o traçado geográfico.
+        const arterial = ["primary", "secondary"].includes(road.highway);
+        const asphaltTexture = arterial ? "ara-asphalt-arterial" : "ara-asphalt-local";
+        for (let i = 0; i < points.length - 1; i++) {
+          const a = points[i], b = points[i + 1];
+          const length = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+          if (length < 8) continue;
+          this.add.tileSprite(
+            (a.x + b.x) / 2, (a.y + b.y) / 2, length + 3, width, asphaltTexture
+          )
+            .setRotation(Phaser.Math.Angle.Between(a.x, a.y, b.x, b.y))
+            .setAlpha(0.48)
+            .setDepth(1);
+        }
+
+
         g.lineStyle(width + 9, 0x8c977e, 0.92);
         g.beginPath();
         g.moveTo(points[0].x, points[0].y);
@@ -248,23 +309,25 @@ export default class WorldScene extends Phaser.Scene {
         g.lineStyle(1, 0xe0b88a, 0.58);
         g.strokePoints(outer.map(p => new Phaser.Geom.Point(p.x - 1, p.y - 1)), true);
 
-        // Linhas de telhado recortadas ao interior do polígono.
-        const spacing = Math.max(9, Math.min(18, Math.floor((b.maxY - b.minY) / 3)));
-        for (let y = b.minY + spacing; y < b.maxY - 2; y += spacing) {
-          const intersections = [];
-          for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) {
-            const a = outer[j], c = outer[i];
-            if ((a.y > y) !== (c.y > y)) {
-              intersections.push(a.x + (c.x - a.x) * (y - a.y) / (c.y - a.y));
+        // Telhados pequenos recebem linhas discretas; grandes volumes ficam limpos.
+        if ((building.area_m2 || 0) <= 900) {
+          const spacing = Math.max(9, Math.min(18, Math.floor((b.maxY - b.minY) / 3)));
+          for (let y = b.minY + spacing; y < b.maxY - 2; y += spacing) {
+            const intersections = [];
+            for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) {
+              const a = outer[j], c = outer[i];
+              if ((a.y > y) !== (c.y > y)) {
+                intersections.push(a.x + (c.x - a.x) * (y - a.y) / (c.y - a.y));
+              }
             }
-          }
-          intersections.sort((a, c) => a - c);
-          g.lineStyle(1, commercial ? 0xc4d1ca : 0x3e302d, 0.27);
-          for (let i = 0; i + 1 < intersections.length; i += 2) {
-            g.beginPath();
-            g.moveTo(intersections[i] + 2, y);
-            g.lineTo(intersections[i + 1] - 2, y);
-            g.strokePath();
+            intersections.sort((a, c) => a - c);
+            g.lineStyle(1, commercial ? 0xc4d1ca : 0x3e302d, 0.27);
+            for (let i = 0; i + 1 < intersections.length; i += 2) {
+              g.beginPath();
+              g.moveTo(intersections[i] + 2, y);
+              g.lineTo(intersections[i + 1] - 2, y);
+              g.strokePath();
+            }
           }
         }
 
@@ -273,6 +336,32 @@ export default class WorldScene extends Phaser.Scene {
         const h = Math.max(2, Math.min(5, (b.maxY - b.minY) * 0.12));
         g.fillStyle(commercial ? 0xb4c6bb : 0xd9ad7b, 0.72);
         g.fillRect(center.x - w / 2, center.y - h / 2, w, h);
+
+        // Prefab 64x64 do atlas oficial. Mantém escala nativa; reduz apenas
+        // quando o footprint real é menor que a célula do prefab.
+        const style = building.visual_style || {};
+        const variant = Number.isFinite(style.variant) ? style.variant : hash(building.id) % 4;
+        const category = style.category || (commercial ? "commercial" : "residential");
+        const namedCommercial = /shopping|habib|mcdonald|burger|posto|supermercado|restaurante|loja/i
+          .test(building.name || "");
+        const visualCommercial = category === "commercial" || commercial || namedCommercial;
+        let prefabFrame;
+        if (industrial || /warehouse|industrial/.test(type)) {
+          prefabFrame = 5; // galpão
+        } else if (visualCommercial) {
+          prefabFrame = (building.area_m2 || 0) > 500 ? 3 : [3, 6, 7, 3][variant % 4];
+        } else if (/apartment|apartments|hotel|school|transportation/.test(type) ||
+                   (building.area_m2 || 0) > 1800) {
+          prefabFrame = 4; // edifício de maior porte
+        } else {
+          prefabFrame = [0, 1, 2, 0][variant % 4];
+        }
+        const prefabScale = Math.min(1.6, Math.max(0.42,
+          Math.min(b.maxX - b.minX, b.maxY - b.minY) / 64));
+        this.add.image(center.x, center.y, "ara-buildings", prefabFrame)
+          .setScale(prefabScale)
+          .setOrigin(0.5, 0.58)
+          .setDepth(31 + center.y / 100000);
 
         this.buildingCollision.push({
           rings: poly,
@@ -288,22 +377,19 @@ export default class WorldScene extends Phaser.Scene {
 
   drawTrees() {
     this.treeCollision = [];
-    const g = this.add.graphics().setDepth(45);
+    const shadows = this.add.graphics().setDepth(44);
     for (const tree of (this.mapData.trees || [])) {
       const p = toWorld(tree.point, PPM);
-      const seed = hash(tree.id);
-      const radius = 10 + (seed % 5);
-      g.fillStyle(0x1d2d21, 0.48);
-      g.fillEllipse(p.x + 3, p.y + 7, radius * 2.3, radius * 1.25);
-      g.fillStyle(0x654a30, 1);
-      g.fillRect(p.x - 2, p.y + 2, 4, 12);
-      g.fillStyle(seed % 2 ? 0x315d38 : 0x386c3e, 1);
-      g.fillCircle(p.x, p.y - 4, radius);
-      g.fillStyle(0x60904e, 0.9);
-      g.fillCircle(p.x - 4, p.y - 7, Math.max(4, radius * 0.55));
-      g.fillStyle(0x87a65c, 0.68);
-      g.fillRect(p.x - 4, p.y - 12, 4, 3);
-      this.treeCollision.push({ x: p.x, y: p.y + 3, radius: 11 });
+      const kind = String(tree.kind || "").toLowerCase();
+      const shrub = kind.includes("shrub") || kind.includes("bush");
+      shadows.fillStyle(0x1d2d21, 0.38);
+      shadows.fillEllipse(p.x + 3, p.y + 7, shrub ? 34 : 46, shrub ? 18 : 25);
+      this.add.image(p.x, p.y, shrub ? "ara-shrub" : "ara-tree")
+        .setOrigin(0.5, 0.72)
+        .setDepth(45 + p.y / 100000);
+      this.treeCollision.push({
+        x: p.x, y: p.y + 3, radius: shrub ? 8 : 11
+      });
     }
   }
 
