@@ -4,10 +4,12 @@ Protótipo top-down em Phaser 3, JavaScript e Vite. O mapa é preparado a partir
 
 ## Estado da entrega
 
-- Código do jogo, controles, minimapa, sprites e tiles pixel-art estão incluídos.
-- O conversor de dados está incluído e lê os arquivos originais descritos abaixo.
-- **O `public/data/map.json` não acompanha este ZIP**, pois os arquivos do Dropbox foram inspecionados, mas não foi possível transferir seus binários para o ambiente de empacotamento nesta sessão. Gere o arquivo localmente antes de abrir o mapa no jogo.
-- O jogo mostra instruções quando o mapa ainda não foi preparado. Não cria uma malha urbana fictícia como substituto.
+- O jogo carrega primeiro `public/data/aracatexas_map.json`; `public/data/map.json` é mantido como fallback.
+- O mapa visual contém quadras, lotes, 1.023 footprints de construções, 210 vias e 94 árvores procedurais.
+- Os atlas originais estão incluídos: terreno com grade de 8 × 4 tiles de 32 px e construções com grade de 4 × 2 prefabs de 64 px.
+- A primeira camada visual já desenha lotes, vias, calçadas, telhados estilizados, árvores e prefabs. O Araçatuba Shopping recebe um tratamento de landmark com letreiro.
+- Os arquivos de referência do export (manifest, índice de chunks e mapas de controle) ficam em `public/data/visual_world_source/`.
+- Esta é uma primeira versão visual jogável, ainda não o acabamento definitivo da cidade. Autotiling completo, fachadas individualizadas, mobiliário urbano e landmarks feitos à mão continuam no roteiro.
 
 ## 1. Pré-requisitos no Windows
 
@@ -47,37 +49,42 @@ npm install
 
 O conversor usa apenas a biblioteca padrão do Python; não é necessário instalar dependências Python extras. Ele usa `pyproj` quando está instalado e contém um cálculo UTM 22S alternativo quando não está.
 
-## 3. Preparar o mapa real
+## 3. Dados geográficos e recursos visuais
 
-Se o Knoxify estiver no caminho padrão:
+O mapa principal já preparado está em:
 
-```powershell
-npm run prepare:map
+`public\data\aracatexas_map.json`
+
+O jogo tenta carregar esse arquivo primeiro e usa `public\data\map.json` apenas como fallback. Não execute o conversor sobre o mapa principal durante o desenvolvimento: o script `prepare:map` gera o arquivo de fallback `map.json`, não o export visual do Dropbox.
+
+A fonte visual original está organizada em:
+
+```text
+public/
+  assets/
+    aracatexas_tileset.png       # 8 × 4 tiles, 32 px
+    aracatexas_buildings.png     # 4 × 2 prefabs, 64 px
+  data/
+    aracatexas_map.json          # mapa principal
+    map.json                     # fallback
+    map_backup.json              # cópia preservada
+    visual_world_source/
+      manifest.json
+      chunk_index.json
+      README.txt
+      control_ground.png
+      control_roads.png
+      control_buildings.png
+      control_zones.png
 ```
 
-Ou informe a pasta raiz do Knoxify:
+Os arquivos dentro de `visual_world_source` são referências para as próximas etapas do renderizador. Os mapas de controle ainda não são usados como camadas em tempo real pelo jogo.
 
-```powershell
-npm run prepare:map -- --source "C:\Users\guilh\Desktop\python\knoxify-master"
-```
-
-Também é possível apontar diretamente para `procedural_city`:
-
-```powershell
-npm run prepare:map -- --source "C:\caminho\knoxify-master\output\procedural_city"
-```
-
-O conversor procura o cache Overpass na árvore informada. Se os arquivos estiverem em outra unidade, ajuste o caminho.
-
-O resultado é criado em:
-
-`public\data\map.json`
-
-O recorte usa como centro longitude `-50.43568`, latitude `-21.22224` e raio de 650 metros. As coordenadas são transformadas de WGS84 para **EPSG:32722 (UTM 22S)**. Quadras, lotes, edifícios e ruas são preservados como geometrias; as vias são lidas diretamente de `elements[].geometry` nos elementos `way` do cache.
+O recorte geográfico usa longitude `-50.43568`, latitude `-21.22224`, raio de 650 metros e **EPSG:32722 (UTM 22S)**. As geometrias de quadras, lotes, construções e ruas preservam a referência espacial original.
 
 ## 4. Executar o jogo
 
-Depois de preparar o mapa:
+Com os arquivos do mapa já presentes no repositório:
 
 ```powershell
 npm run dev

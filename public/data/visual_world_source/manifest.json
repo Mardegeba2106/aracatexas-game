@@ -1,0 +1,425 @@
+{
+  "name": "Araçatexas visual world",
+  "format": "aracatexas-world-v1",
+  "seed": 20261108,
+  "crs": "EPSG:32722",
+  "bounds_m": [
+    -924.287,
+    -737.78,
+    651.212,
+    751.183
+  ],
+  "preview": {
+    "file": "aracatexas_preview.png",
+    "width": 2856,
+    "height": 2703,
+    "pixels_per_meter": 1.7772147110217145
+  },
+  "tile_size_px": 32,
+  "tile_size_m": 2.0,
+  "chunk_tiles": 64,
+  "counts": {
+    "blocks": 150,
+    "lots": 1341,
+    "buildings": 1023,
+    "roads": 210,
+    "osm_trees": 0,
+    "generated_trees": 94
+  },
+  "control_maps": {
+    "ground": {
+      "file": "control_ground.png",
+      "width": 788,
+      "height": 745,
+      "meters_per_pixel": 2.0
+    },
+    "zones": {
+      "file": "control_zones.png",
+      "width": 788,
+      "height": 745,
+      "meters_per_pixel": 2.0
+    },
+    "roads": {
+      "file": "control_roads.png",
+      "width": 788,
+      "height": 745,
+      "meters_per_pixel": 2.0
+    },
+    "buildings": {
+      "file": "control_buildings.png",
+      "width": 788,
+      "height": 745,
+      "meters_per_pixel": 2.0
+    }
+  },
+  "tileset": {
+    "file": "aracatexas_tileset.png",
+    "tile_size": 32,
+    "columns": 8,
+    "rows": 4,
+    "tiles": [
+      {
+        "id": 0,
+        "name": "grass_01",
+        "category": "grass",
+        "x": 0,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 1,
+        "name": "grass_02",
+        "category": "grass",
+        "x": 32,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 2,
+        "name": "grass_03",
+        "category": "grass",
+        "x": 64,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 3,
+        "name": "grass_04",
+        "category": "grass",
+        "x": 96,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 4,
+        "name": "dirt",
+        "category": "ground",
+        "x": 128,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 5,
+        "name": "park_grass",
+        "category": "ground",
+        "x": 160,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 6,
+        "name": "water",
+        "category": "ground",
+        "x": 192,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 7,
+        "name": "plaza",
+        "category": "ground",
+        "x": 224,
+        "y": 0,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 8,
+        "name": "asphalt_01",
+        "category": "road",
+        "x": 0,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 9,
+        "name": "asphalt_02",
+        "category": "road",
+        "x": 32,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 10,
+        "name": "asphalt_03",
+        "category": "road",
+        "x": 64,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 11,
+        "name": "asphalt_arterial",
+        "category": "road",
+        "x": 96,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 12,
+        "name": "sidewalk_01",
+        "category": "sidewalk",
+        "x": 128,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 13,
+        "name": "sidewalk_02",
+        "category": "sidewalk",
+        "x": 160,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 14,
+        "name": "curb",
+        "category": "sidewalk",
+        "x": 192,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 15,
+        "name": "crosswalk",
+        "category": "marking",
+        "x": 224,
+        "y": 32,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 16,
+        "name": "road_horizontal",
+        "category": "road",
+        "x": 0,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 17,
+        "name": "road_vertical",
+        "category": "road",
+        "x": 32,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 18,
+        "name": "intersection",
+        "category": "road",
+        "x": 64,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 19,
+        "name": "road_corner",
+        "category": "road",
+        "x": 96,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 20,
+        "name": "lot_residential",
+        "category": "lot",
+        "x": 128,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 21,
+        "name": "lot_commercial",
+        "category": "lot",
+        "x": 160,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 22,
+        "name": "roof_red",
+        "category": "building",
+        "x": 192,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 23,
+        "name": "roof_gray",
+        "category": "building",
+        "x": 224,
+        "y": 64,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 24,
+        "name": "wall_warm",
+        "category": "building",
+        "x": 0,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 25,
+        "name": "wall_cool",
+        "category": "building",
+        "x": 32,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 26,
+        "name": "tree_top",
+        "category": "vegetation",
+        "x": 64,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 27,
+        "name": "shrub",
+        "category": "vegetation",
+        "x": 96,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 28,
+        "name": "parking",
+        "category": "marking",
+        "x": 128,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 29,
+        "name": "lane_dash",
+        "category": "marking",
+        "x": 160,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 30,
+        "name": "paving",
+        "category": "ground",
+        "x": 192,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      },
+      {
+        "id": 31,
+        "name": "concrete",
+        "category": "ground",
+        "x": 224,
+        "y": 96,
+        "width": 32,
+        "height": 32
+      }
+    ]
+  },
+  "building_atlas": {
+    "file": "aracatexas_buildings.png",
+    "cell_size": 64,
+    "columns": 4,
+    "rows": 2,
+    "prefabs": [
+      {
+        "id": 0,
+        "name": "casa_terrea",
+        "x": 0,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 1,
+        "name": "casa_telhado_cinza",
+        "x": 64,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 2,
+        "name": "sobrado",
+        "x": 128,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 3,
+        "name": "comercio",
+        "x": 192,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 4,
+        "name": "predio_residencial",
+        "x": 0,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 5,
+        "name": "galpao",
+        "x": 64,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 6,
+        "name": "loja_esquina",
+        "x": 128,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      },
+      {
+        "id": 7,
+        "name": "fachada_estreita",
+        "x": 192,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      }
+    ]
+  },
+  "game_map": "aracatexas_map.json",
+  "attribution": "© OpenStreetMap contributors · ODbL"
+}
