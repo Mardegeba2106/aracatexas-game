@@ -5,9 +5,11 @@ Protótipo top-down em Phaser 3, JavaScript e Vite. O mapa é preparado a partir
 ## Estado da entrega
 
 - O jogo carrega primeiro `public/data/aracatexas_map.json`; `public/data/map.json` é mantido como fallback.
-- O mapa visual contém quadras, lotes, 1.023 footprints de construções, 210 vias e 94 árvores procedurais.
+- O mapa visual contém 150 quadras, 1.341 lotes, 1.140 footprints de construções (1.023 originais + 117 residências procedurais), 210 vias e 153 árvores.
+- O gerador estruturou 838 propriedades residenciais com 4.483 segmentos de muro, 838 acessos de pedestres, 792 portões de veículos e 598 áreas pavimentadas de garagem/entrada.
+- Cada residência mantém dados próprios no lote: footprint da casa, dimensões, recuos, garagem, área de quintal, muros e portões. A geração usa seed determinística.
 - Os atlas originais estão incluídos: terreno com grade de 8 × 4 tiles de 32 px e construções com grade de 4 × 2 prefabs de 64 px.
-- A primeira camada visual já desenha lotes, vias, calçadas, telhados estilizados, árvores e prefabs. O Araçatuba Shopping recebe um tratamento de landmark com letreiro.
+- A renderização mantém a textura atual dos telhados e acrescenta quintais, entradas pavimentadas, muros e portões. Casas e acessórios permanecem como geometrias individuais; o Araçatuba Shopping mantém o tratamento de landmark com letreiro.
 - Os arquivos de referência do export (manifest, índice de chunks e mapas de controle) ficam em `public/data/visual_world_source/`.
 - Esta é uma primeira versão visual jogável, ainda não o acabamento definitivo da cidade. Autotiling completo, fachadas individualizadas, mobiliário urbano e landmarks feitos à mão continuam no roteiro.
 
@@ -141,7 +143,7 @@ aracatexas-game/
 
 - O recorte inclui feições que intersectam o círculo de 650 m; geometrias de lotes/edifícios que cruzam a borda permanecem inteiras para evitar cortar telhados e limites de lote.
 - As larguras das ruas são aproximações visuais por classe OSM, a menos que a tag `width` esteja disponível.
-- A colisão do protótipo usa os footprints dos edifícios; muros, cercas, mobiliário urbano e obstáculos não mapeados ainda não têm colisão.
+- A colisão usa os footprints das construções e os segmentos de muro, com aberturas nos portões. Os muros são indexados em células espaciais para evitar testar todo o bairro a cada passo.
 - O cache fornecido tem geometrias nas próprias `ways`; o conversor não depende de reconstruir todas as linhas por meio de IDs de nodes.
 - A primeira camada visual usa textura de terreno, limites reais de lotes, traçados OSM e footprints reais de edifícios. Telhados e fachadas são estilizações procedurais sobre os polígonos, não modelos individuais desenhados à mão.
 - O protótipo é single-player. Multiplayer, NPCs, missões e sistema de estabelecimentos interativos completos ficam para etapas posteriores.

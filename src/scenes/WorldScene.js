@@ -18,6 +18,15 @@ const palette = {
   industrial: [0x777c76, 0x8a8a7b]
 };
 
+const distanceToSegment = (point, a, b) => {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq ? Math.max(0, Math.min(1,
+    ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq
+  )) : 0;
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+};
+
 const hash = (text) => {
   let h = 2166136261;
   for (let i = 0; i < String(text).length; i++) {
@@ -32,6 +41,7 @@ export default class WorldScene extends Phaser.Scene {
     super("WorldScene");
     this.mapData = null;
     this.buildingCollision = [];
+    this.wallCollision = new Map();
     this.player = null;
     this.keys = null;
     this.facing = "down";
@@ -132,12 +142,13 @@ export default class WorldScene extends Phaser.Scene {
     this.drawLots();
     this.drawRoads();
     this.drawBuildings();
+    this.drawResidentialProperties();
     this.drawTrees();
     this.drawStreetLabels();
     this.createPlayer();
     this.drawMinimap();
     console.info(
-      `[Araçatexas] Mundo renderizado: ${this.buildingCollision.length} construções, ${this.treeCollision.length} árvores.`
+      `[Araçatexas] Mundo renderizado: ${this.buildingCollision.length} construções, ${this.residentialPropertyCount} propriedades residenciais, ${this.treeCollision.length} árvores.`
     );
 
     this.cameras.main.setBounds(
@@ -443,6 +454,72 @@ export default class WorldScene extends Phaser.Scene {
     }
   }
 
+  drawResidentialProperties() {
+    const garages = this.add.graphics().setDepth(18);
+    const wallShadow = this.add.graphics().setDepth(24);
+    const wallFace = this.add.graphics().setDepth(25);
+    const gateGraphics = this.add.graphics().setDepth(26);
+    const cellSize = 256;
+    this.wallCollision = new Map();
+    this.residentialPropertyCount = 0;
+    wallShadow.lineStyle(7, 0x303a30, 0.88);
+    wallFace.lineStyle(4, 0xb5ad91, 1);
+    gateGraphics.lineStyle(4, 0x454b45, 1);
+
+    const addWallCollision = (a, b) => {
+      const margin = PLAYER_RADIUS + 5;
+      const minCellX = Math.floor((Math.min(a.x, b.x) - margin) / cellSize);
+      const maxCellX = Math.floor((Math.max(a.x, b.x) + margin) / cellSize);
+      const minCellY = Math.floor((Math.min(a.y, b.y) - margin) / cellSize);
+      const maxCellY = Math.floor((Math.max(a.y, b.y) + margin) / cellSize);
+      const wall = { a, b, radius: PLAYER_RADIUS + 2 };
+      for (let cy = minCellY; cy <= maxCellY; cy++) {
+        for (let cx = minCellX; cx <= maxCellX; cx++) {
+          const key = `${cx}:${cy}`;
+          if (!this.wallCollision.has(key)) this.wallCollision.set(key, []);
+          this.wallCollision.get(key).push(wall);
+        }
+      }
+    };
+
+    for (const lot of this.mapData.lots) {
+      const residence = lot.residential;
+      if (!residence) continue;
+      this.residentialPropertyCount++;
+
+      for (const polygon of getFeaturePolygons({ polygons: residence.garage || [] }, PPM)) {
+        if (!polygon.length || polygon[0].length < 3) continue;
+        const points = polygon[0].map(point => new Phaser.Geom.Point(point.x, point.y));
+        garages.fillStyle(0x77786c, 0.96);
+        garages.fillPoints(points, true, true);
+        garages.lineStyle(2, 0x4b5149, 0.9);
+        garages.strokePoints(points, true);
+        garages.lineStyle(1, 0xb7b19a, 0.55);
+        if (points.length >= 4) garages.lineBetween(points[0].x, points[0].y, points[1].x, points[1].y);
+      }
+
+      for (const segment of residence.walls || []) {
+        if (!Array.isArray(segment) || segment.length !== 2) continue;
+        const a = toWorld(segment[0], PPM);
+        const b = toWorld(segment[1], PPM);
+        wallShadow.lineBetween(a.x, a.y, b.x, b.y);
+        wallFace.lineBetween(a.x, a.y, b.x, b.y);
+        addWallCollision(a, b);
+      }
+
+      for (const gate of residence.gates || []) {
+        const line = gate.line || [];
+        if (line.length !== 2) continue;
+        const a = toWorld(line[0], PPM);
+        const b = toWorld(line[1], PPM);
+        gateGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        gateGraphics.fillStyle(0xd0c19b, 1);
+        gateGraphics.fillCircle(a.x, a.y, 2.5);
+        gateGraphics.fillCircle(b.x, b.y, 2.5);
+      }
+    }
+  }
+
   drawTrees() {
     this.treeCollision = [];
     const shadows = this.add.graphics().setDepth(44);
@@ -511,6 +588,18 @@ export default class WorldScene extends Phaser.Scene {
       { x, y: y + 5 }, { x: x - PLAYER_RADIUS, y: y + 5 },
       { x: x + PLAYER_RADIUS, y: y + 5 }, { x, y: y + 5 - PLAYER_RADIUS }
     ];
+    const cellSize = 256;
+    const cellX = Math.floor(x / cellSize);
+    const cellY = Math.floor((y + 5) / cellSize);
+    const wallPoint = { x, y: y + 5 };
+    for (let cy = cellY - 1; cy <= cellY + 1; cy++) {
+      for (let cx = cellX - 1; cx <= cellX + 1; cx++) {
+        const nearbyWalls = this.wallCollision.get(`${cx}:${cy}`) || [];
+        if (nearbyWalls.some(wall => distanceToSegment(wallPoint, wall.a, wall.b) < wall.radius)) {
+          return true;
+        }
+      }
+    }
     for (const tree of (this.treeCollision || [])) {
       if (Phaser.Math.Distance.Between(x, y + 5, tree.x, tree.y) <
           PLAYER_RADIUS + tree.radius) return true;
