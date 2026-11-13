@@ -136,6 +136,7 @@ export default class WorldScene extends Phaser.Scene {
     // Elementos pequenos do atlas são criados uma vez e reutilizados.
     this.createAtlasTexture("ara-tree", 26);
     this.createAtlasTexture("ara-shrub", 27);
+    this.createResidentialTextures();
     // Fundo de grama sólido por enquanto: evita repetir o atlas inteiro como padrão.
 
     // Lotes já definem o solo; evita sobrepor os limites de quadra em toda a tela.
@@ -186,6 +187,99 @@ export default class WorldScene extends Phaser.Scene {
       }
     }
   }
+
+
+  createResidentialTextures() {
+    const create = (key, painter) => {
+      if (this.textures.exists(key)) return;
+      const texture = this.textures.createCanvas(key, 32, 32);
+      const context = texture.getContext();
+      context.imageSmoothingEnabled = false;
+      painter(context);
+      texture.refresh();
+    };
+
+    create("res-yard-grass", ctx => {
+      ctx.fillStyle = "#557b43"; ctx.fillRect(0, 0, 32, 32);
+      for (let i = 0; i < 42; i++) {
+        const x = (i * 17 + 5) % 32, y = (i * 23 + 3) % 32;
+        ctx.fillStyle = i % 3 === 0 ? "#78965a" : "#496d3c";
+        ctx.fillRect(x, y, 1, 1);
+      }
+    });
+    create("res-yard-garden", ctx => {
+      ctx.fillStyle = "#527548"; ctx.fillRect(0, 0, 32, 32);
+      for (let i = 0; i < 20; i++) {
+        const x = (i * 13 + 4) % 30, y = (i * 19 + 5) % 30;
+        ctx.fillStyle = i % 2 ? "#8ca95e" : "#365f3c";
+        ctx.fillRect(x, y, 2, 2);
+        if (i % 4 === 0) {
+          ctx.fillStyle = "#c4b66e";
+          ctx.fillRect(x + 1, y - 1, 1, 1);
+        }
+      }
+    });
+    create("res-yard-dirt", ctx => {
+      ctx.fillStyle = "#806b4c"; ctx.fillRect(0, 0, 32, 32);
+      for (let i = 0; i < 34; i++) {
+        const x = (i * 11 + 7) % 32, y = (i * 19 + 2) % 32;
+        ctx.fillStyle = i % 2 ? "#a58a61" : "#67573f";
+        ctx.fillRect(x, y, 2, 1);
+      }
+    });
+    create("res-driveway-concrete", ctx => {
+      ctx.fillStyle = "#8c8d82"; ctx.fillRect(0, 0, 32, 32);
+      for (let y = 0; y < 32; y += 8) {
+        ctx.fillStyle = "#777b73"; ctx.fillRect(0, y, 32, 1);
+      }
+      for (let i = 0; i < 18; i++) {
+        const x = (i * 17 + 3) % 32, y = (i * 7 + 9) % 32;
+        ctx.fillStyle = "#a6a595"; ctx.fillRect(x, y, 1, 1);
+      }
+    });
+    create("res-driveway-pavers", ctx => {
+      ctx.fillStyle = "#9a9581"; ctx.fillRect(0, 0, 32, 32);
+      for (let y = 0; y < 32; y += 8) {
+        ctx.fillStyle = "#6f7068"; ctx.fillRect(0, y, 32, 1);
+        for (let x = y % 16 ? 0 : 8; x < 32; x += 16) {
+          ctx.fillRect(x, y, 1, 8);
+        }
+      }
+      for (let i = 0; i < 12; i++) {
+        ctx.fillStyle = "#b1aa91";
+        ctx.fillRect((i * 7 + 2) % 32, (i * 13 + 1) % 32, 2, 1);
+      }
+    });
+    create("res-garage-roof", ctx => {
+      ctx.fillStyle = "#79513f"; ctx.fillRect(0, 0, 32, 32);
+      for (let y = 3; y < 32; y += 6) {
+        ctx.fillStyle = "#573e35"; ctx.fillRect(0, y, 32, 1);
+        ctx.fillStyle = "#9c6c4d"; ctx.fillRect(0, y + 1, 32, 1);
+      }
+      ctx.fillStyle = "#b07d59"; ctx.fillRect(3, 3, 2, 2);
+      ctx.fillRect(20, 15, 2, 2);
+    });
+  }
+
+  drawResidentialSurface(textureKey, points, depth) {
+    if (!points || points.length < 3) return;
+    const bounds = polygonBounds(points);
+    const width = Math.max(2, bounds.maxX - bounds.minX);
+    const height = Math.max(2, bounds.maxY - bounds.minY);
+    const maskShape = this.make.graphics({ x: 0, y: 0, add: false });
+    maskShape.fillStyle(0xffffff, 1);
+    maskShape.fillPoints(points, true, true);
+    this.residentialMasks ||= [];
+    this.residentialMasks.push(maskShape);
+    this.add.tileSprite(
+      bounds.minX, bounds.minY, width, height, textureKey
+    )
+      .setOrigin(0)
+      .setTileScale(1, 1)
+      .setMask(maskShape.createGeometryMask())
+      .setDepth(depth);
+  }
+
 
   drawLots() {
     const g = this.add.graphics().setDepth(-20);
@@ -405,7 +499,15 @@ export default class WorldScene extends Phaser.Scene {
         } else if (institutional || (building.area_m2 || 0) > 1800) {
           prefabFrame = 4;
         } else {
-          prefabFrame = [0, 1, 2, 0][variant % 4];
+          const residenceType = String(style.residence_type || "").toLowerCase();
+          const residenceFrames = {
+            casa_terrea: [0, 1, 0, 7],
+            casa_antiga: [1, 7, 1, 0],
+            sobrado: [2, 2, 0, 2],
+            casa_estendida: [7, 0, 7, 1]
+          };
+          const frames = residenceFrames[residenceType];
+          prefabFrame = frames ? frames[variant % frames.length] : [0, 1, 2, 0][variant % 4];
         }
 
         const minDimension = Math.min(
@@ -455,16 +557,23 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   drawResidentialProperties() {
-    const garages = this.add.graphics().setDepth(18);
+    const yards = this.add.graphics().setDepth(15);
+    const garagePads = this.add.graphics().setDepth(18);
+    const garageRoofs = this.add.graphics().setDepth(20);
     const wallShadow = this.add.graphics().setDepth(24);
     const wallFace = this.add.graphics().setDepth(25);
+    const wallTexture = this.add.graphics().setDepth(25.5);
     const gateGraphics = this.add.graphics().setDepth(26);
     const cellSize = 256;
     this.wallCollision = new Map();
     this.residentialPropertyCount = 0;
-    wallShadow.lineStyle(7, 0x303a30, 0.88);
-    wallFace.lineStyle(4, 0xb5ad91, 1);
-    gateGraphics.lineStyle(4, 0x454b45, 1);
+    this.residentialMasks = [];
+
+    const wallStyles = {
+      plaster: { face: 0xc5baa1, shadow: 0x30372e, joint: 0xe4d8bd },
+      brick: { face: 0x9b7057, shadow: 0x382f29, joint: 0x65483a },
+      concrete: { face: 0x929a95, shadow: 0x303a35, joint: 0xb8c0b8 }
+    };
 
     const addWallCollision = (a, b) => {
       const margin = PLAYER_RADIUS + 5;
@@ -475,10 +584,37 @@ export default class WorldScene extends Phaser.Scene {
       const wall = { a, b, radius: PLAYER_RADIUS + 2 };
       for (let cy = minCellY; cy <= maxCellY; cy++) {
         for (let cx = minCellX; cx <= maxCellX; cx++) {
-          const key = `${cx}:${cy}`;
+          const key = String(cx) + ":" + String(cy);
           if (!this.wallCollision.has(key)) this.wallCollision.set(key, []);
           this.wallCollision.get(key).push(wall);
         }
+      }
+    };
+
+    const drawWallTexture = (a, b, type) => {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 8) return;
+      const nx = -dy / length, ny = dx / length;
+      const spacing = type === "brick" ? 11 : type === "concrete" ? 32 : 48;
+      const halfThickness = type === "brick" ? 2.2 : 1.7;
+      const jointColor = wallStyles[type].joint;
+      wallTexture.lineStyle(type === "brick" ? 1.3 : 1, jointColor, 0.82);
+      for (let offset = spacing; offset < length - 2; offset += spacing) {
+        const px = a.x + dx * offset / length;
+        const py = a.y + dy * offset / length;
+        wallTexture.lineBetween(
+          px - nx * halfThickness, py - ny * halfThickness,
+          px + nx * halfThickness, py + ny * halfThickness
+        );
+      }
+      if (type === "brick") {
+        wallTexture.lineStyle(1, 0x5f493c, 0.7);
+        const offset = Math.min(5, length * 0.25);
+        wallTexture.lineBetween(
+          a.x + dx * offset / length, a.y + dy * offset / length,
+          b.x - dx * offset / length, b.y - dy * offset / length
+        );
       }
     };
 
@@ -487,23 +623,68 @@ export default class WorldScene extends Phaser.Scene {
       if (!residence) continue;
       this.residentialPropertyCount++;
 
-      for (const polygon of getFeaturePolygons({ polygons: residence.garage || [] }, PPM)) {
+      const yardSurface = residence.yard?.surface || "grass";
+      const yardTexture = yardSurface === "garden"
+        ? "res-yard-garden" : yardSurface === "dirt" ? "res-yard-dirt" : "res-yard-grass";
+      const yardPolygons = getFeaturePolygons(
+        { polygons: residence.yard?.polygons || [] }, PPM
+      );
+      for (const polygon of yardPolygons) {
         if (!polygon.length || polygon[0].length < 3) continue;
         const points = polygon[0].map(point => new Phaser.Geom.Point(point.x, point.y));
-        garages.fillStyle(0x77786c, 0.96);
-        garages.fillPoints(points, true, true);
-        garages.lineStyle(2, 0x4b5149, 0.9);
-        garages.strokePoints(points, true);
-        garages.lineStyle(1, 0xb7b19a, 0.55);
-        if (points.length >= 4) garages.lineBetween(points[0].x, points[0].y, points[1].x, points[1].y);
+        // Yards sit below houses and garages, so building footprints naturally hide holes.
+        yards.fillStyle(
+          yardSurface === "garden" ? 0x547b47 : yardSurface === "dirt" ? 0x806a4b : 0x527643,
+          0.96
+        );
+        yards.fillPoints(points, true, true);
+        this.drawResidentialSurface(yardTexture, points, 15.2);
       }
 
+      const garagePolygons = getFeaturePolygons(
+        { polygons: residence.garage || [] }, PPM
+      );
+      for (const polygon of garagePolygons) {
+        if (!polygon.length || polygon[0].length < 3) continue;
+        const points = polygon[0].map(point => new Phaser.Geom.Point(point.x, point.y));
+        const bounds = polygonBounds(polygon[0]);
+        const texture = residence.garage_type === "covered"
+          ? "res-driveway-concrete"
+          : (hash(lot.id) % 2 ? "res-driveway-pavers" : "res-driveway-concrete");
+        garagePads.fillStyle(0x85877d, 0.98);
+        garagePads.fillPoints(points, true, true);
+        this.drawResidentialSurface(texture, points, 18.2);
+
+        if (residence.garage_type === "covered") {
+          garageRoofs.fillStyle(0x79513f, 0.96);
+          garageRoofs.fillPoints(points, true, true);
+          for (let y = bounds.minY + 9; y < bounds.maxY - 3; y += 8) {
+            garageRoofs.lineStyle(2, 0x573e35, 0.9);
+            garageRoofs.lineBetween(bounds.minX + 3, y, bounds.maxX - 3, y);
+            garageRoofs.lineStyle(1, 0xb07d59, 0.8);
+            garageRoofs.lineBetween(bounds.minX + 3, y + 2, bounds.maxX - 3, y + 2);
+          }
+        } else {
+          garagePads.lineStyle(1, 0xb6b39e, 0.72);
+          for (let y = bounds.minY + 9; y < bounds.maxY - 3; y += 9) {
+            garagePads.lineBetween(bounds.minX + 2, y, bounds.maxX - 2, y);
+          }
+        }
+      }
+
+      const wallType = wallStyles[residence.wall_type] ? residence.wall_type : "plaster";
+      const style = wallStyles[wallType];
       for (const segment of residence.walls || []) {
         if (!Array.isArray(segment) || segment.length !== 2) continue;
         const a = toWorld(segment[0], PPM);
         const b = toWorld(segment[1], PPM);
-        wallShadow.lineBetween(a.x, a.y, b.x, b.y);
+        wallShadow.lineStyle(8, style.shadow, 0.9);
+        wallShadow.lineBetween(a.x + 1, a.y + 2, b.x + 1, b.y + 2);
+        wallFace.lineStyle(wallType === "brick" ? 4.5 : 4, style.face, 1);
         wallFace.lineBetween(a.x, a.y, b.x, b.y);
+        wallTexture.lineStyle(1, 0xe8dfc7, 0.42);
+        wallTexture.lineBetween(a.x, a.y - 1, b.x, b.y - 1);
+        drawWallTexture(a, b, wallType);
         addWallCollision(a, b);
       }
 
@@ -512,7 +693,22 @@ export default class WorldScene extends Phaser.Scene {
         if (line.length !== 2) continue;
         const a = toWorld(line[0], PPM);
         const b = toWorld(line[1], PPM);
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const nx = -dy / length, ny = dx / length;
+        gateGraphics.lineStyle(4, 0x303a36, 1);
         gateGraphics.lineBetween(a.x, a.y, b.x, b.y);
+        gateGraphics.lineStyle(2, 0xaeb7a7, 1);
+        gateGraphics.lineBetween(a.x + nx * 2, a.y + ny * 2, b.x + nx * 2, b.y + ny * 2);
+        const bars = Math.max(2, Math.floor(length / (gate.type === "vehicle" ? 9 : 7)));
+        for (let index = 0; index <= bars; index++) {
+          const t = index / bars;
+          const px = a.x + dx * t, py = a.y + dy * t;
+          gateGraphics.lineStyle(1.5, 0xc6c9b7, 0.92);
+          gateGraphics.lineBetween(
+            px - nx * 2, py - ny * 2, px + nx * 2, py + ny * 2
+          );
+        }
         gateGraphics.fillStyle(0xd0c19b, 1);
         gateGraphics.fillCircle(a.x, a.y, 2.5);
         gateGraphics.fillCircle(b.x, b.y, 2.5);
