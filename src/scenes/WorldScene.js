@@ -559,7 +559,6 @@ export default class WorldScene extends Phaser.Scene {
   drawResidentialProperties() {
     const yards = this.add.graphics().setDepth(15);
     const garagePads = this.add.graphics().setDepth(18);
-    const garageRoofs = this.add.graphics().setDepth(20);
     const wallShadow = this.add.graphics().setDepth(24);
     const wallFace = this.add.graphics().setDepth(25);
     const wallTexture = this.add.graphics().setDepth(25.5);
@@ -656,14 +655,7 @@ export default class WorldScene extends Phaser.Scene {
         this.drawResidentialSurface(texture, points, 18.2);
 
         if (residence.garage_type === "covered") {
-          garageRoofs.fillStyle(0x79513f, 0.96);
-          garageRoofs.fillPoints(points, true, true);
-          for (let y = bounds.minY + 9; y < bounds.maxY - 3; y += 8) {
-            garageRoofs.lineStyle(2, 0x573e35, 0.9);
-            garageRoofs.lineBetween(bounds.minX + 3, y, bounds.maxX - 3, y);
-            garageRoofs.lineStyle(1, 0xb07d59, 0.8);
-            garageRoofs.lineBetween(bounds.minX + 3, y + 2, bounds.maxX - 3, y + 2);
-          }
+          this.drawResidentialSurface("res-garage-roof", points, 20);
         } else {
           garagePads.lineStyle(1, 0xb6b39e, 0.72);
           for (let y = bounds.minY + 9; y < bounds.maxY - 3; y += 9) {
