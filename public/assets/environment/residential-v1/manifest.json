@@ -1,0 +1,341 @@
+{
+  "name": "Aracatexas Residential Assets v1",
+  "game_reference": {
+    "tile_px": 32,
+    "pixels_per_meter": 16,
+    "tile_meters": 2
+  },
+  "sources": [
+    "Gemini_Generated_Image_397pfo397pfo397p.jpg",
+    "Gemini_Generated_Image_4gs3u44gs3u44gs3.jpg",
+    "Gemini_Generated_Image_am03u7am03u7am03.jpg",
+    "Gemini_Generated_Image_cmea5icmea5icmea.jpg",
+    "Gemini_Generated_Image_dwtzxzdwtzxzdwtz.jpg",
+    "Gemini_Generated_Image_kh6d0okh6d0okh6d.jpg",
+    "Gemini_Generated_Image_md8es9md8es9md8e.jpg",
+    "Gemini_Generated_Image_qu0dviqu0dviqu0d.jpg",
+    "Gemini_Generated_Image_u7qjq2u7qjq2u7qj.jpg",
+    "Gemini_Generated_Image_z9u8ljz9u8ljz9u8.jpg"
+  ],
+  "processing": {
+    "grid_repaired": "guide-grid bands detected; near-black/near-white overlay pixels were inpainted from local median samples",
+    "background_cutout": "outer composition silhouettes clipped with explicit polygon masks; internal neutral surfaces were preserved",
+    "originals_modified": false,
+    "per_source": {
+      "traditional_pink": {
+        "source": "Gemini_Generated_Image_397pfo397pfo397p.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            681,
+            690
+          ],
+          [
+            1360,
+            1371
+          ]
+        ],
+        "grid_columns": [
+          [
+            679,
+            688
+          ],
+          [
+            1351,
+            1361
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 34677
+      },
+      "traditional_yellow": {
+        "source": "Gemini_Generated_Image_4gs3u44gs3u44gs3.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            680,
+            690
+          ],
+          [
+            1360,
+            1371
+          ]
+        ],
+        "grid_columns": [
+          [
+            679,
+            688
+          ],
+          [
+            1351,
+            1361
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 34677
+      },
+      "modern_pool_light": {
+        "source": "Gemini_Generated_Image_am03u7am03u7am03.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            2043,
+            2047
+          ]
+        ],
+        "grid_columns": [],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 5268
+      },
+      "modern_compact": {
+        "source": "Gemini_Generated_Image_cmea5icmea5icmea.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            677,
+            686
+          ]
+        ],
+        "grid_columns": [
+          [
+            677,
+            686
+          ],
+          [
+            1361,
+            1369
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 88311
+      },
+      "traditional_teal": {
+        "source": "Gemini_Generated_Image_dwtzxzdwtzxzdwtz.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            681,
+            690
+          ],
+          [
+            1360,
+            1371
+          ]
+        ],
+        "grid_columns": [
+          [
+            679,
+            688
+          ],
+          [
+            1351,
+            1361
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 34677
+      },
+      "modern_pool_dark": {
+        "source": "Gemini_Generated_Image_kh6d0okh6d0okh6d.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            2043,
+            2047
+          ]
+        ],
+        "grid_columns": [],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 5268
+      },
+      "modern_narrow_flat": {
+        "source": "Gemini_Generated_Image_md8es9md8es9md8e.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            407,
+            413
+          ],
+          [
+            816,
+            822
+          ],
+          [
+            1226,
+            1231
+          ],
+          [
+            1635,
+            1641
+          ]
+        ],
+        "grid_columns": [
+          [
+            407,
+            412
+          ],
+          [
+            817,
+            822
+          ],
+          [
+            1225,
+            1230
+          ],
+          [
+            1635,
+            1640
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 2532
+      },
+      "modern_long_pool": {
+        "source": "Gemini_Generated_Image_qu0dviqu0dviqu0d.jpg",
+        "source_size": [
+          1792,
+          2400
+        ],
+        "grid_rows": [
+          [
+            897,
+            902
+          ],
+          [
+            1197,
+            1202
+          ],
+          [
+            1497,
+            1502
+          ],
+          [
+            1797,
+            1802
+          ]
+        ],
+        "grid_columns": [
+          [
+            446,
+            451
+          ],
+          [
+            713,
+            718
+          ],
+          [
+            759,
+            764
+          ],
+          [
+            1027,
+            1032
+          ],
+          [
+            1073,
+            1078
+          ],
+          [
+            1341,
+            1346
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 8091
+      },
+      "traditional_red_roof": {
+        "source": "Gemini_Generated_Image_u7qjq2u7qjq2u7qj.jpg",
+        "source_size": [
+          1792,
+          2400
+        ],
+        "grid_rows": [
+          [
+            797,
+            805
+          ],
+          [
+            1195,
+            1204
+          ]
+        ],
+        "grid_columns": [
+          [
+            580,
+            588
+          ],
+          [
+            1181,
+            1190
+          ],
+          [
+            1656,
+            1662
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 0
+      },
+      "modern_gray": {
+        "source": "Gemini_Generated_Image_z9u8ljz9u8ljz9u8.jpg",
+        "source_size": [
+          2048,
+          2048
+        ],
+        "grid_rows": [
+          [
+            678,
+            687
+          ],
+          [
+            1364,
+            1369
+          ]
+        ],
+        "grid_columns": [
+          [
+            678,
+            686
+          ],
+          [
+            1361,
+            1369
+          ]
+        ],
+        "transparent_pixels": 0,
+        "transparent_pixels_after_mask": 86221
+      }
+    }
+  },
+  "tileable_textures": {
+    "method": "64x64 material samples mirrored into 128x128 repeatable tiles so opposite edges match",
+    "caveat": "mirroring is a practical seamless tiling treatment; it can create visible symmetry in some materials"
+  },
+  "limitations": [
+    "textures/samples are reference crops and are not individually certified seamless.",
+    "Whole-property sprites are composed reference sprites, not automatically aligned to OSM collision footprints.",
+    "Angled-front and top-down viewpoints are separated; do not mix their camera treatments.",
+    "No game rendering or collision code has been changed."
+  ]
+}
