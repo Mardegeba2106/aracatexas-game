@@ -250,5 +250,5 @@ Este pacote ainda exige revisao visual de halos/bordas e teste no mapa. As refer
 """,encoding="utf-8")
 (ROOT/"build_assets_v2.py").write_text(Path(__file__).read_text(encoding="utf-8"),encoding="utf-8")
 print("V2_READY",len(files),"pngs")
-print("PNG_COUNTS properties",len(list((ROOT/"properties").rglob("*.png"))),"roofs",len(list((ROOT/"roofs").glob("*.png"))),"objects",len(list((ROOT/"objects").glob("*.png"))),"samples",len(list((ROOT/"textures"/"samples").glob("*.png"))),"tiles",len(list((ROOT/"textures"/"tiles").glob("*.png"))))
+print("PNG_COUNTS properties",len(list((ROOT/"properties").rglob("*.png"))),"roofs",len(list((ROOT/"roofs").rglob("*.png"))),"objects",len(list((ROOT/"objects").glob("*.png"))),"samples",len(list((ROOT/"textures"/"samples").glob("*.png"))),"tiles",len(list((ROOT/"textures"/"tiles").glob("*.png"))))
 for key,v in qa.items(): print("BG",key,v["removed_background_pct"],"pct")

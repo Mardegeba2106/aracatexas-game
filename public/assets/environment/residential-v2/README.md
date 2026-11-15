@@ -1,35 +1,40 @@
-# Aracatexas — Residential Assets v2
+# Araçatexas — pacote residencial v2
 
-Pacote revisado com base nas dez imagens originais. A v1 permanece preservada.
+Pacote produzido a partir das dez referências originais. A versão 1 foi preservada; esta é uma revisão técnica separada.
 
-## Conteudo e contagem
-- 10 composicoes de imoveis: 7 top-down e 3 angled-front
+## Conteúdo
+- 10 composições residenciais: 7 top-down e 3 com fachada em ângulo
 - 4 recortes de planos de telhado
-- 15 objetos/modulos de ambiente
+- 15 objetos e módulos de ambiente
 - 12 amostras de materiais
-- 9 texturas repetiveis 128x128
-- 50 PNGs de assets no total (arquivos de teste em preview nao entram na contagem)
+- 9 texturas repetíveis de 128×128 px
+- 50 PNGs de assets
 
-## Escala
-O jogo usa tile base de 32x32 px, com referencia de 16 px por metro. Os tiles 128x128 ocupam 4x4 tiles do jogo antes do ajuste final no Phaser.
+## Organização
+- properties/top_down/: composições vistas de cima, para referência e futuros prefabs
+- properties/angled_front/: composições com perspectiva frontal/oblíqua; não misturar com a câmera top-down
+- roofs/shapes/: recortes de telhados
+- objects/: objetos e módulos; alguns preservam partes de muros, portões ou equipamentos e não são sprites flutuantes isolados
+- textures/samples/: amostras de materiais
+- textures/tiles/: 9 superfícies repetíveis para grama, água, telhas, telhado metálico, pavers e piso
 
-## Reconstrucao
-Na pasta, execute python rebuild_v2.py. O orquestrador executa build_assets_v2.py e depois refine_assets_v2.py. As imagens originais em Desktop/python/exemplos texturas nao sao alteradas.
+## Escala do jogo
+A referência do projeto é tile base de 32×32 px, com 16 px por metro. Um tile de textura 128×128 equivale a 4×4 tiles de jogo antes de ajustar a escala visual.
 
-## O que foi corrigido em relacao a v1
-- Remocao real do fundo claro conectado ao exterior, em vez de manter alpha totalmente opaco.
-- Reparacao das faixas-guia detectadas.
-- Tiles construidos por offset e mistura das costuras, sem espelhamento em quatro quadrantes.
-- Recorte mais limpo de grama, agua e palmeira.
-- Indice com dimensoes, orientacao e fracao transparente.
+## Integração Phaser já testada localmente
+O projeto local passou a carregar grass_tileable.png como chão de fundo. Nos edifícios com footprint compatível, o renderizador usa:
+- telhas cerâmicas laranja/sombreadas em casas
+- telha metálica cinza/vermelha em estabelecimentos comerciais
+- pavers cinza em alguns apartamentos
 
-## Como interpretar os assets
-- properties/top_down: composicoes de lote vistas de cima.
-- properties/angled_front: composicoes com perspectiva frontal/obliqua. Nao misturar com top-down na mesma camada de camera.
-- roofs/shapes: planos de telhado recortados.
-- objects: inclui sprites com transparencia e modulos estruturais que preservam parte da superficie original (por exemplo, segmentos de portao/muro e equipamentos sobre telhado). Os modulos opacos precisam ser posicionados como pecas de ambiente, nao como sprites flutuantes isolados.
-- textures/samples: amostras de referencia; nao assumir que todas repetem perfeitamente.
-- textures/tiles: materiais repetiveis para pisos, grama, agua e telhados.
+As superfícies são aplicadas como TileSprite, recortadas por uma máscara geométrica construída a partir do polígono real da edificação. O ângulo acompanha a aresta mais longa. Isso evita que a imagem escape do footprint ou seja esticada sobre formatos incompatíveis. A cor chapada dos lotes foi reduzida para deixar o gramado aparecer.
+
+Filtro atual de elegibilidade: 55–650 m², lado menor mínimo de 7 m, lado maior máximo de 60 m e proporção máxima de 2,5. Edifícios fora desses limites mantêm o render procedural atual.
+
+Estado do código: integração compilada e visualmente testada no projeto local. As alterações de WorldScene.js e WorldChunkManager.js continuam locais e sem commit; não foram empurradas para o GitHub porque o branch de trabalho já continha alterações anteriores do projeto. A branch de assets no GitHub contém o pacote visual, não uma integração de código mesclada na main.
+
+## Reconstrução
+No PC com Python e Pillow instalados, execute python rebuild_v2.py. O script usa as dez imagens de Desktop/python/exemplos texturas e não altera os arquivos originais.
 
 ## Limites conhecidos
-Este pacote ainda nao foi integrado ao Phaser. As casas precisam ser ajustadas as footprints, escala e colisao dos lotes OSM; ordem de desenho, ancoragem e sobreposicao ainda precisam de teste no mapa. Os nove tiles foram testados em repeticao 3x3, mas a repeticao visual de uma amostra pequena ainda pode aparecer em areas grandes. A v2 e uma base tecnica revisada, nao uma integracao final do jogo.
+A remoção automática de fundo foi feita por conectividade e máscara, mas objetos complexos ainda podem precisar de retoque manual de borda. Os recortes de fachada em ângulo são uma família separada. As composições residenciais completas e a maior parte dos objetos ainda não foram distribuídos automaticamente no mapa; a integração atual aplica materiais de telhado e gramado, com fallback procedural para os demais casos. Os tiles passaram por teste de repetição 3×3, mas amostras pequenas podem revelar padrões repetidos em áreas grandes.
