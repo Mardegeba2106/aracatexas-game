@@ -267,7 +267,7 @@ export default class WorldScene extends Phaser.Scene {
       frameRate: 8, repeat: -1
     });
 
-    const spawn = this.v4Preview ? [70, -140] : (this.mapData.meta.spawn || [0, 0]);
+    const spawn = this.mapData.meta.spawn || [0, 0];
     const p = toWorld(spawn, PPM);
     this.player = this.add.sprite(p.x, p.y, "player", 1)
       .setOrigin(0.5, 0.86).setDepth(60);
