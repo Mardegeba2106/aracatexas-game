@@ -1,35 +1,32 @@
-export async function loadPreparedMap() {
-  const candidates = ["/data/aracatexas_map.json", "/data/map.json"];
-  let lastError = null;
-
-  for (const path of candidates) {
-    try {
-      const response = await fetch(path, { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status} ao carregar ${path}`);
-      const map = await response.json();
-      const required = ["blocks", "lots", "buildings", "roads"];
-      for (const key of required) {
-        if (!Array.isArray(map[key])) {
-          throw new Error(`O mapa está incompleto: a camada "${key}" não existe.`);
-        }
-      }
-      if (!map.meta || map.meta.crs !== "EPSG:32722") {
-        throw new Error("Sistema de coordenadas inesperado. Esperado EPSG:32722.");
-      }
-      map.trees = Array.isArray(map.trees) ? map.trees : [];
-      map.visual = map.visual || null;
-      console.info(`[Araçatexas] Mapa carregado: ${path}`, {
-        blocks: map.blocks.length,
-        lots: map.lots.length,
-        buildings: map.buildings.length,
-        roads: map.roads.length,
-        trees: map.trees.length
-      });
-      return map;
-    } catch (error) {
-      lastError = error;
-      console.warn(`[Araçatexas] Falha ao carregar ${path}:`, error);
-    }
+async function fetchJson(path) {
+  const response = await fetch(path, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Não foi possível carregar ${path} (HTTP ${response.status}).`);
   }
-  throw lastError || new Error("Nenhum arquivo de mapa válido foi encontrado.");
+  return response.json();
+}
+
+export async function loadPreparedMap() {
+  const baseUrl = import.meta.env.BASE_URL;
+  const [manifest, minimap] = await Promise.all([
+    fetchJson(`${baseUrl}data/world-manifest.json`),
+    fetchJson(`${baseUrl}data/minimap.json`)
+  ]);
+
+  if (manifest.version !== 1 || !Array.isArray(manifest.chunks)) {
+    throw new Error("O manifesto de chunks está ausente ou em versão incompatível. Execute npm run prepare:map.");
+  }
+  if (!manifest.meta || manifest.meta.crs !== "EPSG:32722") {
+    throw new Error("Sistema de coordenadas inesperado no manifesto do mapa.");
+  }
+  if (!Array.isArray(minimap.roads)) {
+    throw new Error("Os dados do minimapa estão incompletos. Execute npm run prepare:map.");
+  }
+
+  return {
+    meta: manifest.meta,
+    roads: minimap.roads,
+    chunkManifest: manifest,
+    chunkBaseUrl: `${baseUrl}data/chunks/`
+  };
 }

@@ -1,0 +1,404 @@
+{
+  "source_processing": {
+    "traditional_pink": {
+      "source": "Gemini_Generated_Image_397pfo397pfo397p.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 1206078,
+      "removed_background_pct": 28.76,
+      "guide_rows_repaired": [
+        [
+          681,
+          690
+        ],
+        [
+          1360,
+          1371
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          679,
+          688
+        ],
+        [
+          1351,
+          1361
+        ]
+      ]
+    },
+    "traditional_yellow": {
+      "source": "Gemini_Generated_Image_4gs3u44gs3u44gs3.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 1322526,
+      "removed_background_pct": 31.53,
+      "guide_rows_repaired": [
+        [
+          680,
+          690
+        ],
+        [
+          1360,
+          1371
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          679,
+          688
+        ],
+        [
+          1351,
+          1361
+        ]
+      ]
+    },
+    "modern_pool_light": {
+      "source": "Gemini_Generated_Image_am03u7am03u7am03.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 510925,
+      "removed_background_pct": 12.18,
+      "guide_rows_repaired": [
+        [
+          2043,
+          2047
+        ]
+      ],
+      "guide_columns_repaired": []
+    },
+    "modern_compact": {
+      "source": "Gemini_Generated_Image_cmea5icmea5icmea.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 1182051,
+      "removed_background_pct": 28.18,
+      "guide_rows_repaired": [
+        [
+          677,
+          686
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          677,
+          686
+        ],
+        [
+          1361,
+          1369
+        ]
+      ]
+    },
+    "traditional_teal": {
+      "source": "Gemini_Generated_Image_dwtzxzdwtzxzdwtz.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 1338741,
+      "removed_background_pct": 31.92,
+      "guide_rows_repaired": [
+        [
+          681,
+          690
+        ],
+        [
+          1360,
+          1371
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          679,
+          688
+        ],
+        [
+          1351,
+          1361
+        ]
+      ]
+    },
+    "modern_pool_dark": {
+      "source": "Gemini_Generated_Image_kh6d0okh6d0okh6d.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 529721,
+      "removed_background_pct": 12.63,
+      "guide_rows_repaired": [
+        [
+          2043,
+          2047
+        ]
+      ],
+      "guide_columns_repaired": []
+    },
+    "modern_narrow_flat": {
+      "source": "Gemini_Generated_Image_md8es9md8es9md8e.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 2539698,
+      "removed_background_pct": 60.55,
+      "guide_rows_repaired": [
+        [
+          407,
+          413
+        ],
+        [
+          816,
+          822
+        ],
+        [
+          1226,
+          1231
+        ],
+        [
+          1635,
+          1641
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          407,
+          412
+        ],
+        [
+          817,
+          822
+        ],
+        [
+          1225,
+          1230
+        ],
+        [
+          1635,
+          1640
+        ]
+      ]
+    },
+    "modern_long_pool": {
+      "source": "Gemini_Generated_Image_qu0dviqu0dviqu0d.jpg",
+      "source_size": [
+        1792,
+        2400
+      ],
+      "removed_background_pixels": 2257970,
+      "removed_background_pct": 52.5,
+      "guide_rows_repaired": [
+        [
+          897,
+          902
+        ],
+        [
+          1197,
+          1202
+        ],
+        [
+          1497,
+          1502
+        ],
+        [
+          1797,
+          1802
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          446,
+          451
+        ],
+        [
+          713,
+          718
+        ],
+        [
+          759,
+          764
+        ],
+        [
+          1027,
+          1032
+        ],
+        [
+          1073,
+          1078
+        ],
+        [
+          1341,
+          1346
+        ]
+      ]
+    },
+    "traditional_red_roof": {
+      "source": "Gemini_Generated_Image_u7qjq2u7qjq2u7qj.jpg",
+      "source_size": [
+        1792,
+        2400
+      ],
+      "removed_background_pixels": 492967,
+      "removed_background_pct": 11.46,
+      "guide_rows_repaired": [
+        [
+          797,
+          805
+        ],
+        [
+          1195,
+          1204
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          580,
+          588
+        ],
+        [
+          1181,
+          1190
+        ],
+        [
+          1656,
+          1662
+        ]
+      ]
+    },
+    "modern_gray": {
+      "source": "Gemini_Generated_Image_z9u8ljz9u8ljz9u8.jpg",
+      "source_size": [
+        2048,
+        2048
+      ],
+      "removed_background_pixels": 1112943,
+      "removed_background_pct": 26.53,
+      "guide_rows_repaired": [
+        [
+          678,
+          687
+        ],
+        [
+          1364,
+          1369
+        ]
+      ],
+      "guide_columns_repaired": [
+        [
+          678,
+          686
+        ],
+        [
+          1361,
+          1369
+        ]
+      ]
+    }
+  },
+  "tile_edge_checks": {
+    "dark_pavers_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 1.89,
+      "edge_mean_abs_diff_y": 0.7
+    },
+    "grass_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 3.17,
+      "edge_mean_abs_diff_y": 2.41
+    },
+    "pool_water_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 3.32,
+      "edge_mean_abs_diff_y": 1.13
+    },
+    "roof_corrugated_gray_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 2.34,
+      "edge_mean_abs_diff_y": 0.74
+    },
+    "roof_corrugated_red_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 4.15,
+      "edge_mean_abs_diff_y": 0.63
+    },
+    "roof_terracotta_orange_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 3.16,
+      "edge_mean_abs_diff_y": 1.73
+    },
+    "roof_terracotta_shadow_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 0.69,
+      "edge_mean_abs_diff_y": 1.81
+    },
+    "sidewalk_pavers_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 4.3,
+      "edge_mean_abs_diff_y": 0.83
+    },
+    "terracotta_patio_tileable": {
+      "size": [
+        128,
+        128
+      ],
+      "edge_mean_abs_diff_x": 0.84,
+      "edge_mean_abs_diff_y": 1.35
+    }
+  },
+  "known_limits": [
+    "The source references mix angled-front and top-down camera views; keep these groups separate.",
+    "Object crops marked as structural modules intentionally retain their rectangular construction surface.",
+    "The first pass removes connected bright neutral backgrounds and repairs reported guide bands; remaining edge halos must be reviewed visually.",
+    "The package is not wired into Phaser yet; lot footprint, draw order, scale and collision integration are still pending."
+  ],
+  "refinements": {
+    "grass_sample_crop_720px": [
+      150,
+      460,
+      200,
+      510
+    ],
+    "pool_water_sample_crop_720px": [
+      140,
+      225,
+      205,
+      275
+    ],
+    "palm_mask": "high-chroma plant/grass silhouette with 9px dilation; checkboard low-chroma pixels excluded",
+    "palm_asset": "palm_corner_garden.png"
+  }
+}

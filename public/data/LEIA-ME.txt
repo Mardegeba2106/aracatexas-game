@@ -1,5 +1,12 @@
-Esta pasta recebe map.json ao executar o conversor:
+Esta pasta recebe os dados do mapa ao executar o conversor:
 
 npm run prepare:map -- --source "C:/caminho/para/knoxify-master"
 
+O comando gera:
+- map.json: fonte consolidada usada pelo conversor para criar os pacotes regionais.
+- world-manifest.json: metadados e lista de chunks disponíveis.
+- minimap.json: geometria simplificada das vias para o minimapa.
+- chunks/: arquivos regionais carregados sob demanda pelo jogo.
+
+O jogo não carrega map.json diretamente. Ele mantém o manifesto e o minimapa e busca apenas os chunks próximos da câmera. Não apague a pasta chunks/ depois de preparar o mapa.
 O mapa não é preenchido com geometrias fictícias.
