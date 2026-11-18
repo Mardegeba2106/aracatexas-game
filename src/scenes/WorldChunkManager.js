@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { toWorld, polygonBounds, polygonCentroid, getFeaturePolygons } from "../utils/geometry.js";
+import { WALL_CFG, buildRoadSegments, planLotWall, mixColor } from "./lotWalls.js";
 
 const PPM = 16;
 const CHUNK_SIZE = 512;
@@ -30,6 +31,98 @@ function pointInRing(point, ring) {
         ((b.y - a.y) || 1e-9) + a.x) inside = !inside;
   }
   return inside;
+}
+
+function isRectangularLotRing(sourceRing) {
+  const corners = sourceRing.slice();
+  if (corners.length > 1) {
+    const first = corners[0];
+    const last = corners[corners.length - 1];
+    if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-4) corners.pop();
+  }
+
+  // Ignore extra OSM points placed along an otherwise straight property edge.
+  let simplified = true;
+  const straightTolerance = Math.sin(8 * Math.PI / 180);
+  while (simplified && corners.length > 4) {
+    simplified = false;
+    for (let i = 0; i < corners.length; i++) {
+      const previous = corners[(i - 1 + corners.length) % corners.length];
+      const current = corners[i];
+      const next = corners[(i + 1) % corners.length];
+      const incoming = { x: current.x - previous.x, y: current.y - previous.y };
+      const outgoing = { x: next.x - current.x, y: next.y - current.y };
+      const incomingLength = Math.hypot(incoming.x, incoming.y);
+      const outgoingLength = Math.hypot(outgoing.x, outgoing.y);
+      if (incomingLength < 1 || outgoingLength < 1) continue;
+      const cross = Math.abs(
+        incoming.x * outgoing.y - incoming.y * outgoing.x
+      ) / (incomingLength * outgoingLength);
+      const dot = (
+        incoming.x * outgoing.x + incoming.y * outgoing.y
+      ) / (incomingLength * outgoingLength);
+      if (cross <= straightTolerance && dot > 0) {
+        corners.splice(i, 1);
+        simplified = true;
+        break;
+      }
+    }
+  }
+
+  if (corners.length !== 4) return false;
+
+  const sides = [];
+  let turnSign = 0;
+  const angleTolerance = 12 * Math.PI / 180;
+  const parallelTolerance = Math.sin(angleTolerance);
+
+  for (let i = 0; i < 4; i++) {
+    const previous = corners[(i + 3) % 4];
+    const current = corners[i];
+    const next = corners[(i + 1) % 4];
+    const toPrevious = { x: previous.x - current.x, y: previous.y - current.y };
+    const toNext = { x: next.x - current.x, y: next.y - current.y };
+    const previousLength = Math.hypot(toPrevious.x, toPrevious.y);
+    const nextLength = Math.hypot(toNext.x, toNext.y);
+    if (previousLength < 2 || nextLength < 2) return false;
+
+    const cosine = Phaser.Math.Clamp(
+      (toPrevious.x * toNext.x + toPrevious.y * toNext.y) /
+        (previousLength * nextLength),
+      -1,
+      1
+    );
+    const angle = Math.acos(cosine);
+    if (Math.abs(angle - Math.PI / 2) > angleTolerance) return false;
+
+    const incoming = { x: current.x - previous.x, y: current.y - previous.y };
+    const outgoing = { x: next.x - current.x, y: next.y - current.y };
+    const turn = incoming.x * outgoing.y - incoming.y * outgoing.x;
+    if (Math.abs(turn) < 1e-4) return false;
+    const sign = Math.sign(turn);
+    if (turnSign && sign !== turnSign) return false;
+    turnSign = sign;
+
+    sides.push(Math.hypot(outgoing.x, outgoing.y));
+  }
+
+  const parallelError = (a, b) => Math.abs(
+    a.x * b.y - a.y * b.x
+  ) / (Math.hypot(a.x, a.y) * Math.hypot(b.x, b.y));
+
+  const edges = corners.map((point, index) => {
+    const next = corners[(index + 1) % 4];
+    return { x: next.x - point.x, y: next.y - point.y };
+  });
+
+  if (parallelError(edges[0], edges[2]) > parallelTolerance ||
+      parallelError(edges[1], edges[3]) > parallelTolerance) return false;
+
+  const oppositeRatio = (a, b) => Math.max(a, b) / Math.min(a, b);
+  if (oppositeRatio(sides[0], sides[2]) > 1.25 ||
+      oppositeRatio(sides[1], sides[3]) > 1.25) return false;
+
+  return true;
 }
 
 function closestPointOnSegment(point, a, b) {
@@ -184,7 +277,19 @@ export default class WorldChunkManager {
     this.lastWindow = "";
     this.chunkWindow = null;
     this.buildingCollision = [];
+    this.wallCollision = [];
     this.treeCollision = [];
+    this.frontageRoads = (mapData.roads || []).map(road => ({
+      feature: road,
+      roadWidth: (road.width_m || 7) * PPM,
+      lines: (road.lines || []).map(line => line.map(point => toWorld(point, PPM)))
+        .filter(line => line.length > 1)
+    })).filter(road => road.lines.length);
+    this.lotFrontageCache = new Map();
+    this.lotWallEligibility = new Map();
+    this.lotWallGeometryCache = new Map();
+    this.lotWallPlans = new Map();
+    this.wallRoadSegments = buildRoadSegments(mapData.roadIndex || []);
     this.loadingCount = 0;
   }
 
@@ -262,20 +367,26 @@ export default class WorldChunkManager {
 
   syncCollisionArrays() {
     const buildings = new Map();
+    const walls = new Map();
     const trees = new Map();
     for (const chunk of this.loaded.values()) {
       for (const collision of chunk.record?.collisions || []) {
         if (collision.rings) buildings.set(collision.key, collision);
+        else if (collision.segments) walls.set(collision.key, collision);
         else trees.set(collision.key, collision);
       }
     }
     this.buildingCollision.splice(
       0, this.buildingCollision.length, ...buildings.values()
     );
+    this.wallCollision.splice(
+      0, this.wallCollision.length, ...walls.values()
+    );
     this.treeCollision.splice(
       0, this.treeCollision.length, ...trees.values()
     );
     this.scene.buildingCollision = this.buildingCollision;
+    this.scene.wallCollision = this.wallCollision;
     this.scene.treeCollision = this.treeCollision;
   }
   async loadChunkData(chunk) {
@@ -307,6 +418,7 @@ export default class WorldChunkManager {
       this.drawBlocks(chunk, record, rect);
       this.drawLots(chunk, record, rect);
       this.drawRoads(chunk, record, rect);
+      this.drawLotWalls(chunk, record, rect);
       this.drawLabels(chunk, record);
       this.drawBuildings(chunk, record, rect);
       this.drawTrees(chunk, record, rect);
@@ -468,11 +580,12 @@ export default class WorldChunkManager {
     return matches[0] || null;
   }
 
-  findLotFrontageEdge(outer, center, record) {
+  findLotFrontageEdge(outer, center, record, roadSource = null) {
     let best = null;
-    const roads = (record.roads || []).filter(road =>
-      this.getSidewalkWidthMeters(road) > 0
-    );
+    const source = roadSource || record.roads || [];
+    // A frontage must border a street that actually receives a sidewalk.
+    // Footways, service drives and access paths are not parcel street fronts.
+    const roads = source.filter(road => this.getSidewalkWidthMeters(road) > 0);
 
     for (let i = 0; i < outer.length; i++) {
       const a = outer[i];
@@ -486,7 +599,10 @@ export default class WorldChunkManager {
           for (let j = 0; j < line.length - 1; j++) {
             const nearest = closestPointOnSegment(midpoint, line[j], line[j + 1]);
             if (!best || nearest.distance < best.distance) {
-              best = { a, b, midpoint, length, distance: nearest.distance };
+              best = {
+                a, b, midpoint, length, distance: nearest.distance,
+                index: i, road
+              };
             }
           }
         }
@@ -507,7 +623,9 @@ export default class WorldChunkManager {
             a, b,
             midpoint: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
             length,
-            distance: Infinity
+            distance: Infinity,
+            index: i,
+            road: null
           };
         }
       }
@@ -536,6 +654,120 @@ export default class WorldChunkManager {
 
   findLotFrontage(outer, center, record) {
     return this.findLotFrontageEdge(outer, center, record)?.rotation ?? NaN;
+  }
+
+  offsetLotRingFromSidewalk(outer) {
+    const parcelCenter = polygonCentroid([...outer, outer[0]]);
+    const edgeInfo = outer.map((a, index) => {
+      const b = outer[(index + 1) % outer.length];
+      const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1) return { a, b, offset: 0, omit: false };
+
+      // The normal is always directed toward the parcel interior.
+      let nx = -dy / length;
+      let ny = dx / length;
+      const towardCenter = {
+        x: parcelCenter.x - midpoint.x,
+        y: parcelCenter.y - midpoint.y
+      };
+      if (nx * towardCenter.x + ny * towardCenter.y < 0) {
+        nx *= -1;
+        ny *= -1;
+      }
+
+      let nearestStreet = null;
+      for (const road of this.frontageRoads) {
+        const sidewalkMeters = this.getSidewalkWidthMeters(road);
+        if (sidewalkMeters <= 0) continue;
+        for (const line of road.lines || []) {
+          for (let i = 0; i < line.length - 1; i++) {
+            const nearest = closestPointOnSegment(midpoint, line[i], line[i + 1]);
+            if (!nearestStreet || nearest.distance < nearestStreet.distance) {
+              const roadWidth = road.roadWidth || (road.feature?.width_m || 7) * PPM;
+              const sidewalkWidth = sidewalkMeters * PPM;
+              nearestStreet = {
+                distance: nearest.distance,
+                // Reserve sidewalk clearance plus half the wall thickness.
+                // The outer face can then sit outside the centerline without entering the pavement.
+                requiredClearance: roadWidth / 2 + sidewalkWidth + 9,
+                sidewalkWidth
+              };
+            }
+          }
+        }
+      }
+
+      let offset = 0;
+      let omit = false;
+      if (nearestStreet &&
+          nearestStreet.distance < nearestStreet.requiredClearance) {
+        const desiredOffset =
+          nearestStreet.requiredClearance - nearestStreet.distance + 2;
+        const previousLength = Phaser.Math.Distance.Between(
+          outer[(index - 1 + outer.length) % outer.length].x,
+          outer[(index - 1 + outer.length) % outer.length].y,
+          a.x, a.y
+        );
+        const nextLength = Phaser.Math.Distance.Between(
+          b.x, b.y,
+          outer[(index + 2) % outer.length].x,
+          outer[(index + 2) % outer.length].y
+        );
+        const safeInset = Math.min(previousLength, nextLength) * 0.42;
+
+        // When there is not enough parcel depth to clear the pavement safely,
+        // omit this street-facing wall rather than drawing it on the sidewalk.
+        if (desiredOffset > safeInset) {
+          omit = true;
+        } else {
+          offset = desiredOffset;
+        }
+      }
+
+      return {
+        a, b,
+        offset,
+        omit,
+        shiftedA: { x: a.x + nx * offset, y: a.y + ny * offset },
+        shiftedB: { x: b.x + nx * offset, y: b.y + ny * offset }
+      };
+    });
+
+    const intersectLines = (lineA, lineB, fallback) => {
+      const p = lineA.shiftedA;
+      const r = {
+        x: lineA.shiftedB.x - lineA.shiftedA.x,
+        y: lineA.shiftedB.y - lineA.shiftedA.y
+      };
+      const q = lineB.shiftedA;
+      const s = {
+        x: lineB.shiftedB.x - lineB.shiftedA.x,
+        y: lineB.shiftedB.y - lineB.shiftedA.y
+      };
+      const cross = r.x * s.y - r.y * s.x;
+      if (Math.abs(cross) < 1e-6) return fallback;
+      const qmp = { x: q.x - p.x, y: q.y - p.y };
+      const t = (qmp.x * s.y - qmp.y * s.x) / cross;
+      const point = { x: p.x + r.x * t, y: p.y + r.y * t };
+      const maxMiter = Math.max(lineA.offset, lineB.offset, 2) * 3.2;
+      return Phaser.Math.Distance.Between(point.x, point.y, fallback.x, fallback.y) <= maxMiter
+        ? point
+        : fallback;
+    };
+
+    const shiftedRing = outer.map((point, index) => {
+      const previous = edgeInfo[(index - 1 + edgeInfo.length) % edgeInfo.length];
+      const current = edgeInfo[index];
+      return intersectLines(previous, current, point);
+    });
+
+    return {
+      ring: shiftedRing,
+      visibleEdges: edgeInfo.map(edge => !edge.omit)
+    };
   }
 
   findAvenidaBrasiliaX(center, record) {
@@ -778,6 +1010,136 @@ export default class WorldChunkManager {
           g.fillStyle(0xa2ae68, 0.25);
           g.fillRect(center.x - 2, center.y - 2, 4, 4);
         }
+      }
+    }
+  }
+
+  // Plano de muro do lote (geometria pura em lotWalls.js), calculado uma vez por lote.
+  getLotWallPlan(item, polygonIndex) {
+    const lotId = item.feature?.id ?? "lote";
+    const key = `${lotId}:${polygonIndex}`;
+    if (this.lotWallPlans.has(key)) return this.lotWallPlans.get(key);
+    let plan = null;
+    const polygon = item.polygons[polygonIndex];
+    // Só lotes simples (sem buracos) recebem muro.
+    if (polygon && polygon.length === 1 && polygon[0].length >= 4) {
+      const result = planLotWall(polygon[0], {
+        roadSegs: this.wallRoadSegments,
+        seed: hash(lotId),
+        blockSeed: hash(item.feature?.block_id ?? item.feature?.block ?? "")
+      });
+      if (result.ok) plan = result;
+    }
+    this.lotWallPlans.set(key, plan);
+    return plan;
+  }
+
+  // Muros dos lotes: prisma 2D (face externa, topo e face interna) montado a
+  // partir do PERÍMETRO do lote, recuado para depois da calçada. Nada é girado.
+  drawLotWalls(chunk, record, rect) {
+    if (!this.scene.v4Preview || !record.lots.length || !this.wallRoadSegments.length) return;
+
+    const faces = [], tops = [], pillars = [], segments = [], debug = [];
+    for (const item of record.lots) {
+      for (let polygonIndex = 0; polygonIndex < item.polygons.length; polygonIndex++) {
+        const plan = this.getLotWallPlan(item, polygonIndex);
+        if (!plan) continue;
+        // O chunk que contém o primeiro vértice do lote desenha o muro inteiro.
+        // Assim o topo, que sobe na tela, nunca é cortado na divisa de chunks.
+        if (Math.floor(plan.anchor.x / this.chunkSize) !== chunk.cx ||
+            Math.floor(plan.anchor.y / this.chunkSize) !== chunk.cy) continue;
+        faces.push(...plan.faces);
+        tops.push(...plan.tops);
+        pillars.push(...plan.pillars);
+        segments.push(...plan.collisions);
+        debug.push(plan.rings);
+      }
+    }
+    if (!faces.length && !tops.length && !pillars.length) return;
+
+    if (segments.length) {
+      const points = segments.flatMap(segment => [segment.a, segment.b]);
+      const padding = 12;
+      record.collisions.push({
+        key: `walls:${chunk.key}`,
+        segments,
+        thickness: WALL_CFG.thickness + 4,
+        bounds: {
+          minX: Math.min(...points.map(point => point.x)) - padding,
+          minY: Math.min(...points.map(point => point.y)) - padding,
+          maxX: Math.max(...points.map(point => point.x)) + padding,
+          maxY: Math.max(...points.map(point => point.y)) + padding
+        }
+      });
+    }
+
+    const wallFaces = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(33));
+    const wallTops = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(34));
+    const wallPillars = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(35));
+    const H = WALL_CFG.height;
+    const lerpPoint = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    const fillPoly = (graphics, color, points) => {
+      graphics.fillStyle(color, 1);
+      graphics.fillPoints(points, true);
+    };
+
+    // Face: faixa de rodapé, corpo de reboco e sombra sob o topo, entre dois pontos do chão.
+    faces.sort((a, b) => a.sortY - b.sortY);
+    for (const face of faces) {
+      const { p0, p1, pal, shade } = face;
+      const strips = [
+        [0, 1, pal.outline],
+        [1, 5, mixColor(pal.base, shade)],
+        [5, H - 3, mixColor(pal.face, shade)],
+        [H - 3, H - 1, mixColor(pal.faceShadow, shade)],
+        [H - 1, H, mixColor(pal.capShade, shade)]
+      ];
+      for (const [s0, s1, color] of strips) {
+        fillPoly(wallFaces, color, [
+          { x: p0.x, y: p0.y - s0 }, { x: p1.x, y: p1.y - s0 },
+          { x: p1.x, y: p1.y - s1 }, { x: p0.x, y: p0.y - s1 }
+        ]);
+      }
+    }
+
+    // Topo: mostra a espessura do muro (contorno, brilho, capa e sombra).
+    tops.sort((a, b) => a.sortY - b.sortY);
+    for (const top of tops) {
+      const [a, b, c, d] = top.pts;
+      const { pal } = top;
+      const bands = [
+        [0, 0.25, pal.outline], [0.25, 0.5, pal.capHi],
+        [0.5, 0.85, pal.cap], [0.85, 1, pal.capShade]
+      ];
+      for (const [f0, f1, color] of bands) {
+        fillPoly(wallTops, color, [
+          lerpPoint(a, d, f0), lerpPoint(b, c, f0), lerpPoint(b, c, f1), lerpPoint(a, d, f1)
+        ]);
+      }
+    }
+
+    // Pilares nos cantos e nas pontas de portões/aberturas (sempre alinhados à tela).
+    pillars.sort((a, b) => a.sortY - b.sortY);
+    const pillarHeight = H + WALL_CFG.pillarExtra;
+    for (const pillar of pillars) {
+      const { pal } = pillar;
+      const x0 = Math.round(pillar.x - WALL_CFG.pillarHalf);
+      const bottom = Math.round(pillar.y + WALL_CFG.pillarHalf);
+      const top = bottom - pillarHeight;
+      wallPillars.fillStyle(pal.outline, 1).fillRect(x0, top, 7, pillarHeight);
+      wallPillars.fillStyle(pal.pillar, 1).fillRect(x0 + 1, top, 5, pillarHeight - 1);
+      wallPillars.fillStyle(pal.base, 1).fillRect(x0 + 1, bottom - 5, 5, 4);
+      wallPillars.fillStyle(pal.outline, 1).fillRect(x0, top - 7, 7, 7);
+      wallPillars.fillStyle(pal.cap, 1).fillRect(x0 + 1, top - 6, 5, 5);
+      wallPillars.fillStyle(pal.capHi, 1).fillRect(x0 + 1, top - 6, 5, 1);
+    }
+
+    // Depuração: ?wallsdebug=1 mostra o lote (ciano) e o eixo do muro (magenta).
+    if (typeof window !== "undefined" && /[?&]wallsdebug=1/.test(window.location.search)) {
+      const overlay = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(60));
+      for (const rings of debug) {
+        overlay.lineStyle(1, 0x00ffff, 0.9).strokePoints(rings.lot, true, true);
+        overlay.lineStyle(1, 0xff00ff, 0.9).strokePoints(rings.center, true, true);
       }
     }
   }

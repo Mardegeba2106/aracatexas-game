@@ -37,6 +37,7 @@ export default class WorldScene extends Phaser.Scene {
     this.mapData = null;
     this.chunkManager = null;
     this.buildingCollision = [];
+    this.wallCollision = [];
     this.player = null;
     this.keys = null;
     this.facing = "down";
@@ -80,6 +81,7 @@ export default class WorldScene extends Phaser.Scene {
     this.load.image("v4-wall-north", assetUrl("assets/environment/residential-v4-preview/components/18_muro_fundo_norte_128x128.png"));
     this.load.image("v4-gate-social", assetUrl("assets/environment/residential-v4-preview/components/08_portao_grade_social_128x192.png"));
     this.load.image("v4-gate-garage", assetUrl("assets/environment/residential-v4-preview/components/07_portao_garagem_basculante_256x192.png"));
+
 
     // Revestimentos V3 reaproveitados somente na face dos muros para dar variedade.
     this.load.image("v3-wall-cream", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_cream.png"));
@@ -217,6 +219,7 @@ export default class WorldScene extends Phaser.Scene {
 
 
     this.buildingCollision = this.chunkManager.buildingCollision;
+    this.wallCollision = this.chunkManager.wallCollision;
     this.treeCollision = this.chunkManager.treeCollision;
 
     this.createPlayer();
@@ -398,13 +401,32 @@ export default class WorldScene extends Phaser.Scene {
     ];
     const candidates = this.chunkManager
       ? this.chunkManager.getCollisionCandidates(x, y, PLAYER_RADIUS + 13)
-      : new Set([...(this.treeCollision || []), ...(this.buildingCollision || [])]);
+      : new Set([...(this.treeCollision || []), ...(this.buildingCollision || []), ...(this.wallCollision || [])]);
 
     for (const candidate of candidates) {
       this.performanceMetrics.collisionChecks++;
       if (Number.isFinite(candidate.radius)) {
         if (Phaser.Math.Distance.Between(x, y + 5, candidate.x, candidate.y) <
             PLAYER_RADIUS + candidate.radius) return true;
+        continue;
+      }
+      if (candidate.bounds && (x < candidate.bounds.minX || x > candidate.bounds.maxX ||
+          y + 5 < candidate.bounds.minY || y + 5 > candidate.bounds.maxY)) continue;
+      if (candidate.segments) {
+        const point = { x, y: y + 5 };
+        const blocked = candidate.segments.some(segment => {
+          const dx = segment.b.x - segment.a.x;
+          const dy = segment.b.y - segment.a.y;
+          const lengthSq = dx * dx + dy * dy;
+          const t = lengthSq > 1e-9
+            ? Phaser.Math.Clamp(((point.x - segment.a.x) * dx + (point.y - segment.a.y) * dy) / lengthSq, 0, 1)
+            : 0;
+          const nearestX = segment.a.x + dx * t;
+          const nearestY = segment.a.y + dy * t;
+          return Phaser.Math.Distance.Between(point.x, point.y, nearestX, nearestY) <
+            PLAYER_RADIUS + (candidate.thickness || 4);
+        });
+        if (blocked) return true;
         continue;
       }
       if (x < candidate.bounds.minX || x > candidate.bounds.maxX ||

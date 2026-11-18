@@ -23,9 +23,18 @@ export async function loadPreparedMap() {
     throw new Error("Os dados do minimapa estão incompletos. Execute npm run prepare:map.");
   }
 
+  // Ruas completas (highway e largura) usadas para recuar os muros dos lotes.
+  let roadIndex = [];
+  try {
+    roadIndex = await fetchJson(`${baseUrl}data/roads-index.json`);
+  } catch (error) {
+    console.warn("[Aracatexas] roads-index.json ausente; muros de lote desativados. Rode npm run split:map.", error);
+  }
+
   return {
     meta: manifest.meta,
     roads: minimap.roads,
+    roadIndex,
     chunkManifest: manifest,
     chunkBaseUrl: `${baseUrl}data/chunks/`
   };
