@@ -1,0 +1,30 @@
+{
+  "name": "Aracatexas Residential Assets v2",
+  "version": 2,
+  "source_images": [
+    "Gemini_Generated_Image_397pfo397pfo397p.jpg",
+    "Gemini_Generated_Image_4gs3u44gs3u44gs3.jpg",
+    "Gemini_Generated_Image_am03u7am03u7am03.jpg",
+    "Gemini_Generated_Image_cmea5icmea5icmea.jpg",
+    "Gemini_Generated_Image_dwtzxzdwtzxzdwtz.jpg",
+    "Gemini_Generated_Image_kh6d0okh6d0okh6d.jpg",
+    "Gemini_Generated_Image_md8es9md8es9md8e.jpg",
+    "Gemini_Generated_Image_qu0dviqu0dviqu0d.jpg",
+    "Gemini_Generated_Image_u7qjq2u7qjq2u7qj.jpg",
+    "Gemini_Generated_Image_z9u8ljz9u8ljz9u8.jpg"
+  ],
+  "source_originals_modified": false,
+  "tile_base_px": 32,
+  "pixels_per_meter": 16,
+  "processing": {
+    "grid_band_repair": "linear interpolation across detected guide bands",
+    "background_removal": "8-connected flood removal of light neutral background pixels, followed by object silhouette masks",
+    "repeatable_textures": "offset seam blending, no mirrored quadrants"
+  },
+  "limitations": [
+    "The source references mix angled-front and top-down camera views; keep these groups separate.",
+    "Object crops marked as structural modules intentionally retain their rectangular construction surface.",
+    "The first pass removes connected bright neutral backgrounds and repairs reported guide bands; remaining edge halos must be reviewed visually.",
+    "The package is not wired into Phaser yet; lot footprint, draw order, scale and collision integration are still pending."
+  ]
+}

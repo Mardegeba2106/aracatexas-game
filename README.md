@@ -4,14 +4,10 @@ Protótipo top-down em Phaser 3, JavaScript e Vite. O mapa é preparado a partir
 
 ## Estado da entrega
 
-- O jogo carrega primeiro `public/data/aracatexas_map.json`; `public/data/map.json` é mantido como fallback.
-- O mapa visual contém 150 quadras, 1.341 lotes, 1.140 footprints de construções (1.023 originais + 117 residências procedurais), 210 vias e 153 árvores.
-- O gerador estruturou 838 propriedades residenciais com 4.483 segmentos de muro, 838 acessos de pedestres, 792 portões de veículos e 598 áreas pavimentadas de garagem/entrada.
-- Cada residência mantém dados próprios no lote: footprint da casa, dimensões, recuos, garagem, área de quintal, muros e portões. A geração usa seed determinística.
-- Os atlas originais estão incluídos: terreno com grade de 8 × 4 tiles de 32 px e construções com grade de 4 × 2 prefabs de 64 px.
-- A renderização mantém a textura atual dos telhados e acrescenta quintais, entradas pavimentadas, muros e portões. Casas e acessórios permanecem como geometrias individuais; o Araçatuba Shopping mantém o tratamento de landmark com letreiro.
-- Os arquivos de referência do export (manifest, índice de chunks e mapas de controle) ficam em `public/data/visual_world_source/`.
-- Esta é uma primeira versão visual jogável, ainda não o acabamento definitivo da cidade. Autotiling completo, fachadas individualizadas, mobiliário urbano e landmarks feitos à mão continuam no roteiro.
+- Código do jogo, controles, minimapa, sprites e tiles pixel-art estão incluídos.
+- O conversor de dados está incluído e lê os arquivos originais descritos abaixo.
+- **O `public/data/map.json` não acompanha este ZIP**, pois os arquivos do Dropbox foram inspecionados, mas não foi possível transferir seus binários para o ambiente de empacotamento nesta sessão. Gere o arquivo localmente antes de abrir o mapa no jogo.
+- O jogo mostra instruções quando o mapa ainda não foi preparado. Não cria uma malha urbana fictícia como substituto.
 
 ## 1. Pré-requisitos no Windows
 
@@ -51,42 +47,37 @@ npm install
 
 O conversor usa apenas a biblioteca padrão do Python; não é necessário instalar dependências Python extras. Ele usa `pyproj` quando está instalado e contém um cálculo UTM 22S alternativo quando não está.
 
-## 3. Dados geográficos e recursos visuais
+## 3. Preparar o mapa real
 
-O mapa principal já preparado está em:
+Se o Knoxify estiver no caminho padrão:
 
-`public\data\aracatexas_map.json`
-
-O jogo tenta carregar esse arquivo primeiro e usa `public\data\map.json` apenas como fallback. Não execute o conversor sobre o mapa principal durante o desenvolvimento: o script `prepare:map` gera o arquivo de fallback `map.json`, não o export visual do Dropbox.
-
-A fonte visual original está organizada em:
-
-```text
-public/
-  assets/
-    aracatexas_tileset.png       # 8 × 4 tiles, 32 px
-    aracatexas_buildings.png     # 4 × 2 prefabs, 64 px
-  data/
-    aracatexas_map.json          # mapa principal
-    map.json                     # fallback
-    map_backup.json              # cópia preservada
-    visual_world_source/
-      manifest.json
-      chunk_index.json
-      README.txt
-      control_ground.png
-      control_roads.png
-      control_buildings.png
-      control_zones.png
+```powershell
+npm run prepare:map
 ```
 
-Os arquivos dentro de `visual_world_source` são referências para as próximas etapas do renderizador. Os mapas de controle ainda não são usados como camadas em tempo real pelo jogo.
+Ou informe a pasta raiz do Knoxify:
 
-O recorte geográfico usa longitude `-50.43568`, latitude `-21.22224`, raio de 650 metros e **EPSG:32722 (UTM 22S)**. As geometrias de quadras, lotes, construções e ruas preservam a referência espacial original.
+```powershell
+npm run prepare:map -- --source "C:\Users\guilh\Desktop\python\knoxify-master"
+```
+
+Também é possível apontar diretamente para `procedural_city`:
+
+```powershell
+npm run prepare:map -- --source "C:\caminho\knoxify-master\output\procedural_city"
+```
+
+O conversor procura o cache Overpass na árvore informada. Se os arquivos estiverem em outra unidade, ajuste o caminho.
+
+O resultado é criado em:
+
+`public\data\map.json`
+
+O recorte usa como centro longitude `-50.43568`, latitude `-21.22224` e raio de 650 metros. As coordenadas são transformadas de WGS84 para **EPSG:32722 (UTM 22S)**. Quadras, lotes, edifícios e ruas são preservados como geometrias; as vias são lidas diretamente de `elements[].geometry` nos elementos `way` do cache.
 
 ## 4. Executar o jogo
 
-Com os arquivos do mapa já presentes no repositório:
+Depois de preparar o mapa:
 
 ```powershell
 npm run dev
@@ -143,7 +134,7 @@ aracatexas-game/
 
 - O recorte inclui feições que intersectam o círculo de 650 m; geometrias de lotes/edifícios que cruzam a borda permanecem inteiras para evitar cortar telhados e limites de lote.
 - As larguras das ruas são aproximações visuais por classe OSM, a menos que a tag `width` esteja disponível.
-- A colisão usa os footprints das construções e os segmentos de muro, com aberturas nos portões. Os muros são indexados em células espaciais para evitar testar todo o bairro a cada passo.
+- A colisão do protótipo usa os footprints dos edifícios; muros, cercas, mobiliário urbano e obstáculos não mapeados ainda não têm colisão.
 - O cache fornecido tem geometrias nas próprias `ways`; o conversor não depende de reconstruir todas as linhas por meio de IDs de nodes.
 - A primeira camada visual usa textura de terreno, limites reais de lotes, traçados OSM e footprints reais de edifícios. Telhados e fachadas são estilizações procedurais sobre os polígonos, não modelos individuais desenhados à mão.
 - O protótipo é single-player. Multiplayer, NPCs, missões e sistema de estabelecimentos interativos completos ficam para etapas posteriores.

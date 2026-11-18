@@ -1,8 +1,12 @@
 import Phaser from "phaser";
 import { loadPreparedMap } from "../data/mapLoader.js";
+import WorldChunkManager from "./WorldChunkManager.js";
 import {
-  toWorld, pointInPolygon, polygonBounds, polygonCentroid, getFeaturePolygons
+  toWorld, pointInPolygon
 } from "../utils/geometry.js";
+
+const PUBLIC_BASE = import.meta.env.BASE_URL;
+const assetUrl = (path) => `${PUBLIC_BASE}${path}`;
 
 const PPM = 16;
 const MAP_RADIUS = 650;
@@ -18,15 +22,6 @@ const palette = {
   industrial: [0x777c76, 0x8a8a7b]
 };
 
-const distanceToSegment = (point, a, b) => {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const lengthSq = dx * dx + dy * dy;
-  const t = lengthSq ? Math.max(0, Math.min(1,
-    ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq
-  )) : 0;
-  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
-};
-
 const hash = (text) => {
   let h = 2166136261;
   for (let i = 0; i < String(text).length; i++) {
@@ -40,61 +35,148 @@ export default class WorldScene extends Phaser.Scene {
   constructor() {
     super("WorldScene");
     this.mapData = null;
+    this.chunkManager = null;
     this.buildingCollision = [];
-    this.wallCollision = new Map();
+    this.wallCollision = [];
     this.player = null;
     this.keys = null;
     this.facing = "down";
     this.touch = window.__araControls;
     this.toastUntil = 0;
+    this.v4Preview = new URLSearchParams(window.location.search).get("v4preview") === "1";
+    this.performanceMetrics = {
+      elapsedMs: 0, frames: 0, fps: 0, averageFps: 0,
+      minFps: 0, maxFps: 0, frameMs: 0, maxFrameMs: 0,
+      windowElapsedMs: 0, windowFrames: 0, windowMaxFrameMs: 0,
+      history: [], collisionChecks: 0, checksPerSecond: 0,
+      lastRefresh: 0
+    };
   }
 
   preload() {
-    this.load.spritesheet("player", "/assets/player.png", {
+    this.load.spritesheet("player", assetUrl("assets/player.png"), {
       frameWidth: 32, frameHeight: 48
     });
-    // Atlas oficial do Araçatexas: 8 colunas x 4 linhas, tiles de 32 px.
-    this.load.spritesheet("ara-tiles", "/assets/aracatexas_tileset.png", {
+    this.load.spritesheet("tiles", assetUrl("assets/tileset.png"), {
       frameWidth: 32, frameHeight: 32
     });
-    // Prefabs oficiais: 4 colunas x 2 linhas, células de 64 px.
-    this.load.spritesheet("ara-buildings", "/assets/aracatexas_buildings.png", {
-      frameWidth: 64, frameHeight: 64
-    });
+
+    // Biblioteca V4 do Gemini: modo de prÃƒÂ©via, sem substituir os arquivos V2.
+    this.load.image("v4-ground-grass", assetUrl("assets/environment/residential-v4-preview/surfaces/01_grama_256x256.png"));
+    this.load.image("v4-ground-dirt", assetUrl("assets/environment/residential-v4-preview/surfaces/02_terra_256x256.png"));
+    this.load.image("v4-ground-sand", assetUrl("assets/environment/residential-v4-preview/surfaces/03_areia_256x256.png"));
+    this.load.image("v4-surface-concrete", assetUrl("assets/environment/residential-v4-preview/surfaces/04_concreto_256x256.png"));
+    this.load.image("v4-surface-sidewalk", assetUrl("assets/environment/residential-v4-preview/surfaces/05_calcada_256x256.png"));
+    this.load.image("v4-surface-pavers", assetUrl("assets/environment/residential-v4-preview/surfaces/06_pavers_256x256.png"));
+    this.load.image("v4-surface-brick", assetUrl("assets/environment/residential-v4-preview/surfaces/07_tijolos_256x256.png"));
+    this.load.image("v4-surface-wood", assetUrl("assets/environment/residential-v4-preview/surfaces/08_madeira_256x256.png"));
+    this.load.image("v4-roof-ceramic", assetUrl("assets/environment/residential-v4-preview/surfaces/09_telhas_ceramicas_256x256.png"));
+    this.load.image("v4-roof-metal", assetUrl("assets/environment/residential-v4-preview/surfaces/10_telhado_metalico_256x256.png"));
+    this.load.image("v4-surface-caqui", assetUrl("assets/environment/residential-v4-preview/surfaces/11_pisos_externos_caquinho_256x256.png"));
+
+    // Componentes frontais de muro/portÃƒÂ£o V4, na mesma perspectiva 3/4 do jogo.
+    this.load.image("v4-wall-front", assetUrl("assets/environment/residential-v4-preview/components/09_muro_alto_frente_128x192.png"));
+    this.load.image("v4-wall-corner-right", assetUrl("assets/environment/residential-v4-preview/components/10_muro_canto_128x192.png"));
+    this.load.image("v4-wall-corner-left", assetUrl("assets/environment/residential-v4-preview/components/17_muro_canto_esquerda_128x192.png"));
+    this.load.image("v4-wall-north", assetUrl("assets/environment/residential-v4-preview/components/18_muro_fundo_norte_128x128.png"));
+    this.load.image("v4-gate-social", assetUrl("assets/environment/residential-v4-preview/components/08_portao_grade_social_128x192.png"));
+    this.load.image("v4-gate-garage", assetUrl("assets/environment/residential-v4-preview/components/07_portao_garagem_basculante_256x192.png"));
+
+
+    // Revestimentos V3 reaproveitados somente na face dos muros para dar variedade.
+    this.load.image("v3-wall-cream", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_cream.png"));
+    this.load.image("v3-wall-white", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_white.png"));
+    this.load.image("v3-wall-gray", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_gray.png"));
+    this.load.image("v3-wall-graphite", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_graphite.png"));
+    this.load.image("v3-wall-ochre", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_ochre.png"));
+    this.load.image("v3-wall-pink", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_pink.png"));
+    this.load.image("v3-wall-teal", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_teal.png"));
+    this.load.image("v3-wall-yellow", assetUrl("assets/environment/residential-v4-preview/wall-materials/wall_plaster_yellow.png"));
+
+    this.load.image("grass-ground-v2",
+      assetUrl("assets/environment/residential-v2/textures/tiles/grass_tileable.png"));
+    this.load.image("roof-terracotta-orange-v2",
+      assetUrl("assets/environment/residential-v2/textures/tiles/roof_terracotta_orange_tileable.png"));
+    this.load.image("roof-terracotta-shadow-v2",
+      assetUrl("assets/environment/residential-v2/textures/tiles/roof_terracotta_shadow_tileable.png"));
+    this.load.image("roof-corrugated-gray-v2",
+      assetUrl("assets/environment/residential-v2/textures/tiles/roof_corrugated_gray_tileable.png"));
+    this.load.image("roof-corrugated-red-v2",
+      assetUrl("assets/environment/residential-v2/textures/tiles/roof_corrugated_red_tileable.png"));
+    this.load.image("roof-pavers-v2",
+      assetUrl("assets/environment/residential-v2/textures/tiles/sidewalk_pavers_tileable.png"));
+
+    // Complete top-down residential compositions. The angled-front references
+    // stay out of this scene because the game camera is top-down.
+    this.load.image("property-modern-compact-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/modern_compact.png"));
+    this.load.image("property-modern-gray-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/modern_gray.png"));
+    this.load.image("property-modern-long-pool-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/modern_long_pool.png"));
+    this.load.image("property-modern-narrow-flat-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/modern_narrow_flat.png"));
+    this.load.image("property-modern-pool-dark-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/modern_pool_dark.png"));
+    this.load.image("property-modern-pool-light-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/modern_pool_light.png"));
+    this.load.image("property-traditional-red-v2",
+      assetUrl("assets/environment/residential-v2/properties/top_down/traditional_red_roof.png"));
   }
 
   create() {
-    this.cameras.main.setBackgroundColor("#3f5b39");
-    this.titleText = this.add.text(26, 22, "ARAÇATEXAS", {
+    this.cameras.main.setBackgroundColor("#3f6b43");
+    this.hudObjects = new Set();
+    this.hudCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height, false, "HUD");
+    this.hudCamera.setScroll(0, 0).setZoom(1).setRoundPixels(true);
+    this.hudCamera.inputEnabled = false;
+    this.logoText = this.registerHud(this.add.text(0, 0, "ARAÃƒâ€¡ATEXAS", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "21px",
       color: "#fff1cb", fontStyle: "bold", stroke: "#243329", strokeThickness: 5
-    }).setScrollFactor(0).setDepth(1000);
+    }).setScrollFactor(0).setDepth(1000));
 
-    this.statusText = this.add.text(28, 50, "Carregando a região...", {
+    this.statusText = this.registerHud(this.add.text(0, 0, "Carregando a regiÃƒÂ£o...", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "12px",
-      color: "#e5e9ce", stroke: "#203027", strokeThickness: 3
-    }).setScrollFactor(0).setDepth(1000);
+      color: "#e5e9ce", stroke: "#203027", strokeThickness: 3,
+      wordWrap: { width: 420 }
+    }).setScrollFactor(0).setDepth(1000));
 
-    this.toast = this.add.text(0, 0, "", {
+    this.perfQuickText = this.registerHud(this.add.text(0, 0, "FPS -- Ã‚Â· quadro -- ms Ã‚Â· F3 anÃƒÂ¡lise", {
+      fontFamily: "Consolas, monospace", fontSize: "10px",
+      color: "#d8e6c5", stroke: "#17241d", strokeThickness: 3
+    }).setScrollFactor(0).setDepth(1000));
+
+    this.perfPanelBg = this.registerHud(this.add.rectangle(0, 0, 310, 188, 0x142019, 0.94)
+      .setOrigin(0).setScrollFactor(0).setDepth(1090)
+      .setStrokeStyle(1, 0xa7b88b, 0.9).setVisible(false));
+    this.perfPanelText = this.registerHud(this.add.text(0, 0, "", {
+      fontFamily: "Consolas, monospace", fontSize: "10px",
+      color: "#e7eddc", lineSpacing: 4,
+      padding: { x: 10, y: 8 }
+    }).setScrollFactor(0).setDepth(1091).setVisible(false));
+
+    this.toast = this.registerHud(this.add.text(0, 0, "", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "14px",
       color: "#fff8de", backgroundColor: "#24372ee8",
       padding: { x: 12, y: 8 }, stroke: "#111a15", strokeThickness: 2,
       align: "center"
-    }).setScrollFactor(0).setDepth(1100).setVisible(false);
+    }).setScrollFactor(0).setDepth(1100).setVisible(false));
 
-    this.input.keyboard?.addCapture(["UP", "DOWN", "LEFT", "RIGHT", "SPACE"]);
+    this.input.keyboard?.addCapture(["UP", "DOWN", "LEFT", "RIGHT", "SPACE", "F3"]);
     this.keys = this.input.keyboard?.addKeys(
       "W,A,S,D,UP,DOWN,LEFT,RIGHT,E"
     );
+    this.debugKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
 
-    this.minimapBg = this.add.rectangle(0, 0, 174, 136, 0x17241d, 0.86)
+    this.minimapBg = this.registerHud(this.add.rectangle(0, 0, 174, 136, 0x17241d, 0.86)
       .setOrigin(0).setScrollFactor(0).setDepth(1000)
-      .setStrokeStyle(2, 0x9ba982, 0.9);
-    this.minimapGraphics = this.add.graphics().setScrollFactor(0).setDepth(1001);
-    this.minimapPlayer = this.add.circle(0, 0, 3, 0xffdf78, 1)
-      .setScrollFactor(0).setDepth(1002).setStrokeStyle(1, 0x17241d);
+      .setStrokeStyle(2, 0x9ba982, 0.9));
+    this.minimapGraphics = this.registerHud(this.add.graphics().setScrollFactor(0).setDepth(1001));
+    this.minimapPlayer = this.registerHud(this.add.circle(0, 0, 3, 0xffdf78, 1)
+      .setScrollFactor(0).setDepth(1002).setStrokeStyle(1, 0x17241d));
 
     this.scale.on("resize", this.layoutHud, this);
+    this.layoutHud();
     this.loadMap();
   }
 
@@ -103,456 +185,71 @@ export default class WorldScene extends Phaser.Scene {
       this.mapData = await loadPreparedMap();
       this.buildWorld();
       this.statusText.setText(
-        `Araçatuba Shopping · Avenida Brasília   |   ${this.mapData.meta.radius_m} m de raio`
+        `AraÃƒÂ§atuba Shopping Ã‚Â· Avenida BrasÃƒÂ­lia   |   ${this.mapData.meta.radius_m} m de raio`
       );
       this.layoutHud();
     } catch (error) {
-      console.error("[Araçatexas] Não foi possível carregar o mapa:", error);
+      console.error("[AraÃƒÂ§atexas] NÃƒÂ£o foi possÃƒÂ­vel carregar o mapa:", error);
       this.showSetupMessage(error.message);
     }
   }
 
   showSetupMessage(reason) {
     const { width, height } = this.scale;
-    const panel = this.add.rectangle(width / 2, height / 2, Math.min(width - 40, 760), 250,
+    const panel = this.registerHud(this.add.rectangle(width / 2, height / 2, Math.min(width - 40, 760), 250,
       0x18251e, 0.94).setScrollFactor(0).setDepth(1200)
-      .setStrokeStyle(2, 0x9aaa7c);
-    const title = this.add.text(width / 2, height / 2 - 82,
-      "MAPA REAL AINDA NÃO PREPARADO", {
+      .setStrokeStyle(2, 0x9aaa7c));
+    const title = this.registerHud(this.add.text(width / 2, height / 2 - 82,
+      "MAPA REAL AINDA NÃƒÆ’O PREPARADO", {
         fontFamily: "Trebuchet MS, sans-serif", fontSize: "20px",
         color: "#f2dfaa", fontStyle: "bold", align: "center"
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1201);
-    const body = this.add.text(width / 2, height / 2 - 12,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1201));
+    const body = this.registerHud(this.add.text(width / 2, height / 2 - 12,
       `${reason}\n\nNo terminal, dentro da pasta aracatexas-game, execute:\n\nnpm run prepare:map -- --source "C:/Users/guilh/Desktop/python/knoxify-master"\n\nDepois rode: npm run dev`, {
         fontFamily: "Consolas, monospace", fontSize: width < 620 ? "10px" : "13px",
         color: "#e3e9d7", align: "center", lineSpacing: 8,
         wordWrap: { width: Math.min(width - 70, 680) }
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1201);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1201));
     this.setupPanel = [panel, title, body];
   }
 
   buildWorld() {
     const worldPx = WORLD_EXTENT * 2 * PPM;
-    // Elementos pequenos do atlas são criados uma vez e reutilizados.
-    this.createAtlasTexture("ara-tree", 26);
-    this.createAtlasTexture("ara-shrub", 27);
-    // Fundo de grama sólido por enquanto: evita repetir o atlas inteiro como padrão.
+    this.chunkManager = new WorldChunkManager(this, this.mapData, WORLD_EXTENT);
 
-    // Lotes já definem o solo; evita sobrepor os limites de quadra em toda a tela.
-    this.drawLots();
-    this.drawRoads();
-    this.drawBuildings();
-    this.drawResidentialProperties();
-    this.drawTrees();
-    this.drawStreetLabels();
+
+    this.buildingCollision = this.chunkManager.buildingCollision;
+    this.wallCollision = this.chunkManager.wallCollision;
+    this.treeCollision = this.chunkManager.treeCollision;
+
     this.createPlayer();
-    this.drawMinimap();
-    console.info(
-      `[Araçatexas] Mundo renderizado: ${this.buildingCollision.length} construções, ${this.residentialPropertyCount} propriedades residenciais, ${this.treeCollision.length} árvores.`
-    );
 
     this.cameras.main.setBounds(
       -WORLD_EXTENT * PPM, -WORLD_EXTENT * PPM, worldPx, worldPx
     );
     this.cameras.main.startFollow(this.player, true, 0.10, 0.10);
-    this.cameras.main.setZoom(this.scale.width < 700 ? 0.62 : 0.50);
+    this.cameras.main.setZoom(this.scale.width < 700 ? 1.0 : 1.12);
+
+    this.drawMinimap();
+    this.chunkManager.updateVisible(true);
     this.layoutHud();
+    this.syncHudCamera();
+  }
+  registerHud(object) {
+    if (!object) return object;
+    object.setScrollFactor(0);
+    this.hudObjects?.add(object);
+    this.cameras?.main?.ignore(object);
+    return object;
   }
 
-  createAtlasTexture(key, frameIndex) {
-    if (this.textures.exists(key)) return;
-    const atlas = this.textures.get("ara-tiles");
-    const frame = this.textures.getFrame("ara-tiles", frameIndex);
-    const source = atlas.getSourceImage();
-    const texture = this.textures.createCanvas(key, frame.cutWidth, frame.cutHeight);
-    texture.getContext().drawImage(
-      source,
-      frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight,
-      0, 0, frame.cutWidth, frame.cutHeight
-    );
-    texture.refresh();
-  }
-
-  drawBlocks() {
-    const g = this.add.graphics().setDepth(-40);
-    for (const block of this.mapData.blocks) {
-      for (const poly of getFeaturePolygons(block, PPM)) {
-        if (!poly.length || poly[0].length < 3) continue;
-        const outer = poly[0].map(p => new Phaser.Geom.Point(p.x, p.y));
-        g.fillStyle(block.zone === "mixed" ? 0x9c956d : 0x87956a, 0.10);
-        g.fillPoints(outer, true, true);
-        g.lineStyle(2, 0x526b48, 0.18);
-        g.strokePoints(outer, true);
-      }
-    }
-  }
-
-  drawLots() {
-    const g = this.add.graphics().setDepth(-20);
-    const groundTiles = [0, 1, 2, 3, 5];
-
-    for (const lot of this.mapData.lots) {
-      const zone = String(lot.zone || "").toLowerCase();
-      const commercial = /commercial|industrial|retail/.test(zone);
-      const seed = hash(lot.id);
-      const base = commercial
-        ? [0x807d5a, 0x8b825e, 0x797d60][seed % 3]
-        : palette.lot[seed % palette.lot.length];
-
-      for (const poly of getFeaturePolygons(lot, PPM)) {
-        if (!poly.length || poly[0].length < 3) continue;
-        const ring = poly[0];
-        const points = ring.map(p => new Phaser.Geom.Point(p.x, p.y));
-        g.fillStyle(base, 0.96);
-        g.fillPoints(points, true, true);
-        g.lineStyle(1, commercial ? 0xb8a779 : 0xa2ad76, 0.42);
-        g.strokePoints(points, true);
-
-        // Pequenos detalhes de chão do atlas, sem criar uma textura do tamanho
-        // do mapa inteiro. Um elemento por lote mantém a cena leve.
-        const center = polygonCentroid(ring);
-        if (seed % 7 === 0) {
-          const tile = commercial ? 30 : groundTiles[seed % groundTiles.length];
-          this.add.image(center.x, center.y, "ara-tiles", tile)
-            .setScale(commercial ? 1.25 : 1.45)
-            .setAlpha(0.48)
-            .setDepth(-19);
-        }
-      }
-    }
-  }
-
-  drawRoads() {
-    const g = this.add.graphics().setDepth(0);
-    for (const road of this.mapData.roads) {
-      const width = (road.width_m || 7) * PPM;
-      for (const line of road.lines) {
-        if (line.length < 2) continue;
-        const points = line.map(p => toWorld(p, PPM));
-
-        // Camadas de calçada, meio-fio e asfalto seguem o traçado real.
-        // Usamos traços vetoriais contínuos para evitar centenas de TileSprites
-        // separados, que pesavam desnecessariamente na renderização.
-        g.lineStyle(width + 24, 0x777f6c, 1);
-        g.beginPath();
-        g.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
-        g.strokePath();
-
-        g.lineStyle(width + 16, 0xb6ad91, 1);
-        g.beginPath();
-        g.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
-        g.strokePath();
-
-        g.lineStyle(width + 9, 0x8c977e, 0.98);
-        g.beginPath();
-        g.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
-        g.strokePath();
-
-        g.lineStyle(width + 3, 0x39423e, 1);
-        g.beginPath();
-        g.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
-        g.strokePath();
-
-        g.lineStyle(width, 0x515753, 1);
-        g.beginPath();
-        g.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
-        g.strokePath();
-
-        // Faixas centrais alinhadas à direção real da via.
-        if (["primary", "secondary", "tertiary"].includes(road.highway)) {
-          const major = ["primary", "secondary"].includes(road.highway);
-          const dashLength = major ? 24 : 16;
-          const gapLength = major ? 20 : 22;
-          g.lineStyle(major ? 4 : 3, major ? 0xe4cf8d : 0xd7d1b9, major ? 0.82 : 0.68);
-
-          for (let i = 0; i < points.length - 1; i++) {
-            const a = points[i], b = points[i + 1];
-            const length = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
-            const angle = Phaser.Math.Angle.Between(a.x, a.y, b.x, b.y);
-            const dx = Math.cos(angle), dy = Math.sin(angle);
-
-            for (let start = 8; start < length - 4; start += dashLength + gapLength) {
-              const end = Math.min(length - 3, start + dashLength);
-              g.lineBetween(
-                a.x + dx * start, a.y + dy * start,
-                a.x + dx * end, a.y + dy * end
-              );
-            }
-          }
-        }
-      }
-    }
-  }
-
-  drawBuildings() {
-    const shadows = this.add.graphics().setDepth(27);
-    const roofs = this.add.graphics().setDepth(29);
-    const details = this.add.graphics().setDepth(30);
-    this.buildingCollision = [];
-
-    for (const building of this.mapData.buildings) {
-      const type = String(building.building_type || "house").toLowerCase();
-      const style = building.visual_style || {};
-      const variant = Number.isFinite(style.variant)
-        ? style.variant : hash(building.id) % 4;
-      const namedCommercial = /shopping|habib|mcdonald|burger|posto|supermercado|restaurante|loja|atacad/i
-        .test(building.name || "");
-      const commercial = /commercial|retail|shop|office/.test(type) ||
-        style.category === "commercial" || namedCommercial;
-      const industrial = /industrial|warehouse|factory/.test(type);
-      const institutional = /apartment|apartments|hotel|school|transportation/.test(type);
-      const colors = commercial
-        ? palette.commercial
-        : industrial ? palette.industrial : palette.roof;
-
-      for (const poly of getFeaturePolygons(building, PPM)) {
-        if (!poly.length || poly[0].length < 3) continue;
-        const outer = poly[0];
-        const bounds = polygonBounds(outer);
-        const polygonCenter = polygonCentroid(outer);
-        // Polígonos grandes e côncavos (como o shopping) podem ter o centroide
-        // deslocado para fora da área. Para landmarks, o centro da caixa é mais
-        // estável para posicionar fachada, prefab e letreiro.
-        const center = (building.area_m2 || 0) > 1500
-          ? { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
-          : polygonCenter;
-        const points = outer.map(p => new Phaser.Geom.Point(p.x, p.y));
-        const shade = colors[hash(building.id) % colors.length];
-
-        // O footprint continua exato. A textura aparece como detalhe pequeno,
-        // evitando máscaras gigantes que estouram a memória do Canvas.
-        shadows.fillStyle(0x17221b, 0.28);
-        shadows.fillPoints(
-          outer.map(p => new Phaser.Geom.Point(p.x + 4, p.y + 5)), true, true
-        );
-        roofs.fillStyle(shade, 1);
-        roofs.fillPoints(points, true, true);
-
-        // Landmarks e edifícios grandes recebem um tile de telhado repetido
-        // apenas dentro do seu próprio footprint. A textura é local à
-        // construção (nunca do tamanho do mapa inteiro), evitando OOM.
-        const detailedRoof = Boolean(building.name) || (building.area_m2 || 0) > 2200;
-        if (detailedRoof) {
-          const maskShape = this.make.graphics({ x: 0, y: 0, add: false });
-          maskShape.fillStyle(0xffffff, 1);
-          maskShape.fillPoints(points, true, true);
-          const roofFrame = commercial || industrial || institutional ? 23 : 22;
-          const roofWidth = Math.max(32, bounds.maxX - bounds.minX);
-          const roofHeight = Math.max(32, bounds.maxY - bounds.minY);
-          this.add.tileSprite(
-            bounds.minX, bounds.minY, roofWidth, roofHeight, "ara-tiles", roofFrame
-          )
-            .setOrigin(0)
-            .setTileScale(3.2, 3.2)
-            .setMask(maskShape.createGeometryMask())
-            .setAlpha(0.24)
-            .setDepth(29.5);
-        }
-
-        details.lineStyle(2, 0x342f2b, 0.92);
-        details.strokePoints(points, true);
-        details.lineStyle(1, 0xe0c49a, 0.58);
-        details.strokePoints(
-          outer.map(p => new Phaser.Geom.Point(p.x - 1, p.y - 1)), true, true
-        );
-
-        // Listras curtas simulam juntas e telhas dentro dos volumes menores.
-        if (!detailedRoof && (building.area_m2 || 0) <= 12000) {
-          const spacing = (building.area_m2 || 0) > 1800
-            ? 48
-            : Math.max(10, Math.min(19, Math.floor(
-                (bounds.maxY - bounds.minY) / 3
-              )));
-          for (let y = bounds.minY + spacing; y < bounds.maxY - 3; y += spacing) {
-            const intersections = [];
-            for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) {
-              const a = outer[j], b = outer[i];
-              if ((a.y > y) !== (b.y > y)) {
-                intersections.push(a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y));
-              }
-            }
-            intersections.sort((a, b) => a - b);
-            details.lineStyle(1, commercial ? 0xd4dfd2 : 0x40332e, 0.34);
-            for (let i = 0; i + 1 < intersections.length; i += 2) {
-              details.lineBetween(intersections[i] + 2, y, intersections[i + 1] - 2, y);
-            }
-          }
-        }
-
-        // Amostra de telha do atlas em escala nativa, posicionada como detalhe.
-        const roofFrame = commercial || industrial || institutional || variant === 1 ? 23 : 22;
-        if (!detailedRoof && (building.area_m2 || 0) > 450) {
-          const roofStampScale = Math.min(1.45, Math.max(0.7,
-            Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 110
-          ));
-          this.add.image(center.x, center.y, "ara-tiles", roofFrame)
-            .setScale(roofStampScale)
-            .setAlpha(0.72)
-            .setDepth(30.5);
-        }
-
-        let prefabFrame;
-        if (industrial) {
-          prefabFrame = 5;
-        } else if (commercial) {
-          prefabFrame = (building.area_m2 || 0) > 1800
-            ? 3 : [3, 6, 7, 3][variant % 4];
-        } else if (institutional || (building.area_m2 || 0) > 1800) {
-          prefabFrame = 4;
-        } else {
-          prefabFrame = [0, 1, 2, 0][variant % 4];
-        }
-
-        const minDimension = Math.min(
-          bounds.maxX - bounds.minX,
-          bounds.maxY - bounds.minY
-        );
-        const prefabScale = Math.min(
-          /shopping/i.test(building.name || "")
-            ? 4.0
-            : (building.area_m2 || 0) > 3000 ? 2.8 : 2.35,
-          Math.max(0.58, minDimension / 64)
-        );
-        this.add.image(center.x, center.y, "ara-buildings", prefabFrame)
-          .setScale(prefabScale)
-          .setOrigin(0.5, 0.62)
-          .setDepth(31 + center.y / 100000);
-
-        if (building.name && (building.area_m2 || 0) > 700) {
-          this.add.text(center.x, center.y - 38, building.name.toUpperCase(), {
-            fontFamily: "Trebuchet MS, sans-serif",
-            fontSize: (building.area_m2 || 0) > 3000 ? "16px" : "9px",
-            fontStyle: "bold",
-            color: "#fff1c7",
-            stroke: "#28352c",
-            strokeThickness: 4,
-            backgroundColor: "#28352ccc",
-            padding: { x: 4, y: 2 },
-            align: "center"
-          }).setOrigin(0.5).setDepth(35 + center.y / 100000)
-            .setPosition(center.x, center.y - ((building.area_m2 || 0) > 3000 ? 72 : 38));
-        }
-
-        this.buildingCollision.push({
-          rings: poly,
-          bounds: {
-            minX: bounds.minX - PLAYER_RADIUS,
-            minY: bounds.minY - PLAYER_RADIUS,
-            maxX: bounds.maxX + PLAYER_RADIUS,
-            maxY: bounds.maxY + PLAYER_RADIUS
-          },
-          name: building.name || "",
-          buildingType: type,
-          center
-        });
-      }
-    }
-  }
-
-  drawResidentialProperties() {
-    const garages = this.add.graphics().setDepth(18);
-    const wallShadow = this.add.graphics().setDepth(24);
-    const wallFace = this.add.graphics().setDepth(25);
-    const gateGraphics = this.add.graphics().setDepth(26);
-    const cellSize = 256;
-    this.wallCollision = new Map();
-    this.residentialPropertyCount = 0;
-    wallShadow.lineStyle(7, 0x303a30, 0.88);
-    wallFace.lineStyle(4, 0xb5ad91, 1);
-    gateGraphics.lineStyle(4, 0x454b45, 1);
-
-    const addWallCollision = (a, b) => {
-      const margin = PLAYER_RADIUS + 5;
-      const minCellX = Math.floor((Math.min(a.x, b.x) - margin) / cellSize);
-      const maxCellX = Math.floor((Math.max(a.x, b.x) + margin) / cellSize);
-      const minCellY = Math.floor((Math.min(a.y, b.y) - margin) / cellSize);
-      const maxCellY = Math.floor((Math.max(a.y, b.y) + margin) / cellSize);
-      const wall = { a, b, radius: PLAYER_RADIUS + 2 };
-      for (let cy = minCellY; cy <= maxCellY; cy++) {
-        for (let cx = minCellX; cx <= maxCellX; cx++) {
-          const key = `${cx}:${cy}`;
-          if (!this.wallCollision.has(key)) this.wallCollision.set(key, []);
-          this.wallCollision.get(key).push(wall);
-        }
-      }
-    };
-
-    for (const lot of this.mapData.lots) {
-      const residence = lot.residential;
-      if (!residence) continue;
-      this.residentialPropertyCount++;
-
-      for (const polygon of getFeaturePolygons({ polygons: residence.garage || [] }, PPM)) {
-        if (!polygon.length || polygon[0].length < 3) continue;
-        const points = polygon[0].map(point => new Phaser.Geom.Point(point.x, point.y));
-        garages.fillStyle(0x77786c, 0.96);
-        garages.fillPoints(points, true, true);
-        garages.lineStyle(2, 0x4b5149, 0.9);
-        garages.strokePoints(points, true);
-        garages.lineStyle(1, 0xb7b19a, 0.55);
-        if (points.length >= 4) garages.lineBetween(points[0].x, points[0].y, points[1].x, points[1].y);
-      }
-
-      for (const segment of residence.walls || []) {
-        if (!Array.isArray(segment) || segment.length !== 2) continue;
-        const a = toWorld(segment[0], PPM);
-        const b = toWorld(segment[1], PPM);
-        wallShadow.lineBetween(a.x, a.y, b.x, b.y);
-        wallFace.lineBetween(a.x, a.y, b.x, b.y);
-        addWallCollision(a, b);
-      }
-
-      for (const gate of residence.gates || []) {
-        const line = gate.line || [];
-        if (line.length !== 2) continue;
-        const a = toWorld(line[0], PPM);
-        const b = toWorld(line[1], PPM);
-        gateGraphics.lineBetween(a.x, a.y, b.x, b.y);
-        gateGraphics.fillStyle(0xd0c19b, 1);
-        gateGraphics.fillCircle(a.x, a.y, 2.5);
-        gateGraphics.fillCircle(b.x, b.y, 2.5);
-      }
-    }
-  }
-
-  drawTrees() {
-    this.treeCollision = [];
-    const shadows = this.add.graphics().setDepth(44);
-    for (const tree of (this.mapData.trees || [])) {
-      const p = toWorld(tree.point, PPM);
-      const kind = String(tree.kind || "").toLowerCase();
-      const shrub = kind.includes("shrub") || kind.includes("bush");
-      shadows.fillStyle(0x1d2d21, 0.38);
-      shadows.fillEllipse(p.x + 3, p.y + 7, shrub ? 34 : 46, shrub ? 18 : 25);
-      this.add.image(p.x, p.y, shrub ? "ara-shrub" : "ara-tree")
-        .setOrigin(0.5, 0.72)
-        .setDepth(45 + p.y / 100000);
-      this.treeCollision.push({
-        x: p.x, y: p.y + 3, radius: shrub ? 8 : 11
-      });
-    }
-  }
-
-  drawStreetLabels() {
-    let drawn = 0;
-    for (const road of this.mapData.roads) {
-      if (!road.name || drawn > 36) continue;
-      const line = road.lines.find(candidate => candidate.length > 2);
-      if (!line) continue;
-      const middle = line[Math.floor(line.length / 2)];
-      const p = toWorld(middle, PPM);
-      const label = this.add.text(p.x, p.y - 10, road.name, {
-        fontFamily: "Trebuchet MS, sans-serif", fontSize: "10px",
-        color: "#eee3ba", stroke: "#252e2a", strokeThickness: 3,
-        backgroundColor: "#303b35a0", padding: { x: 3, y: 1 }
-      }).setOrigin(0.5).setDepth(10).setAlpha(0.78);
-      drawn++;
-    }
+  syncHudCamera() {
+    if (!this.hudCamera) return;
+    const { width, height } = this.scale;
+    this.hudCamera.setViewport(0, 0, width, height).setScroll(0, 0).setZoom(1);
+    const worldObjects = this.children.list.filter(object => !this.hudObjects.has(object));
+    this.hudCamera.ignore(worldObjects);
+    this.cameras.main.ignore([...this.hudObjects]);
   }
 
   createPlayer() {
@@ -583,36 +280,166 @@ export default class WorldScene extends Phaser.Scene {
     this.cameras.main.setRoundPixels(true);
   }
 
+  getSafeAreaInsets() {
+    const probe = document.getElementById("safe-area-probe");
+    if (!probe) return { top: 0, right: 0, bottom: 0, left: 0 };
+    const style = window.getComputedStyle(probe);
+    const read = value => Math.max(0, Number.parseFloat(value) || 0);
+    return {
+      top: read(style.paddingTop),
+      right: read(style.paddingRight),
+      bottom: read(style.paddingBottom),
+      left: read(style.paddingLeft)
+    };
+  }
+
+  togglePerformancePanel() {
+    const visible = !this.perfPanelBg.visible;
+    this.perfPanelBg.setVisible(visible);
+    this.perfPanelText.setVisible(visible);
+    this.layoutHud();
+    if (visible) this.refreshPerformancePanel();
+  }
+
+  updatePerformance(delta) {
+    const metrics = this.performanceMetrics;
+    if (!Number.isFinite(delta) || delta <= 0) return;
+
+    metrics.elapsedMs += delta;
+    metrics.windowElapsedMs = (metrics.windowElapsedMs || 0) + delta;
+    metrics.frames = (metrics.frames || 0) + 1;
+    metrics.windowFrames = (metrics.windowFrames || 0) + 1;
+    metrics.windowMaxFrameMs = Math.max(metrics.windowMaxFrameMs || 0, delta);
+
+    if (metrics.windowElapsedMs < 500) return;
+
+    const seconds = metrics.windowElapsedMs / 1000;
+    metrics.fps = metrics.windowFrames / seconds;
+    metrics.frameMs = metrics.windowElapsedMs / metrics.windowFrames;
+    metrics.maxFrameMs = metrics.windowMaxFrameMs;
+    metrics.checksPerSecond = (metrics.collisionChecks || 0) / seconds;
+
+    metrics.history.push({
+      time: metrics.elapsedMs,
+      fps: metrics.fps,
+      frameMs: metrics.frameMs
+    });
+    metrics.history = metrics.history.filter(sample =>
+      metrics.elapsedMs - sample.time <= 5000
+    );
+
+    const fpsValues = metrics.history.map(sample => sample.fps);
+    metrics.averageFps = fpsValues.reduce((sum, value) => sum + value, 0) /
+      Math.max(1, fpsValues.length);
+    metrics.minFps = Math.min(...fpsValues);
+    metrics.maxFps = Math.max(...fpsValues);
+
+    metrics.windowElapsedMs = 0;
+    metrics.windowFrames = 0;
+    metrics.windowMaxFrameMs = 0;
+    metrics.collisionChecks = 0;
+    metrics.lastRefresh = metrics.elapsedMs;
+
+    const fps = Math.round(metrics.fps);
+    const frame = metrics.frameMs.toFixed(1);
+    const low = metrics.fps < 30;
+    this.perfQuickText.setColor(low ? "#ffb5a5" : "#d8e6c5");
+    this.perfQuickText.setText(
+      `FPS ${fps} Ã‚Â· quadro ${frame} ms Ã‚Â· F3 anÃƒÂ¡lise`
+    );
+    if (this.perfPanelBg.visible) this.refreshPerformancePanel();
+  }
+
+  refreshPerformancePanel() {
+    if (!this.perfPanelText || !this.mapData) return;
+    const metrics = this.performanceMetrics;
+    const objects = this.children.list;
+    const totalObjects = objects.length;
+    const activeObjects = objects.filter(object => object.active !== false).length;
+    const visibleFlags = objects.filter(object => object.visible !== false).length;
+    const graphicsObjects = objects.filter(object => object.type === "Graphics").length;
+    const camera = this.cameras.main;
+    const view = camera.worldView;
+    const counts = this.mapData.meta?.counts || {};
+    const buildings = counts.buildings || 0;
+    const trees = counts.trees || 0;
+    const roads = counts.roads || 0;
+    const lots = counts.lots || 0;
+    const blocks = counts.blocks || 0;
+    const memory = window.performance?.memory?.usedJSHeapSize;
+    const memoryLine = memory
+      ? `MemÃƒÂ³ria JS: ${(memory / 1048576).toFixed(0)} MB`
+      : "MemÃƒÂ³ria JS: nÃƒÂ£o exposta pelo navegador";
+    const mapBg = this.minimapBg;
+    const mapTitle = this.minimapTitle;
+    const hudCamera = this.hudCamera;
+    const lines = [
+      "ANÃƒÂLISE DO JOGO Ã‚Â· F3 fecha",
+      `FPS atual: ${metrics.fps.toFixed(1)} Ã‚Â· mÃƒÂ©dia 5s: ${metrics.averageFps.toFixed(1)}`,
+      `FPS mÃƒÂ­n/mÃƒÂ¡x 5s: ${metrics.minFps.toFixed(1)} / ${metrics.maxFps.toFixed(1)}`,
+      `Quadro mÃƒÂ©dio/pico: ${metrics.frameMs.toFixed(1)} / ${metrics.maxFrameMs.toFixed(1)} ms`,
+      `Objetos: ${totalObjects} total Ã‚Â· ${activeObjects} ativos Ã‚Â· ${visibleFlags} habilitados`,
+      `Graphics: ${graphicsObjects} objetos Ã‚Â· chunks ${this.chunkManager?.loaded.size || 0} ativos Ã‚Â· ${this.chunkManager?.loadingCount || 0} carregando`,
+      `Mapa: ${buildings} edifÃƒÂ­cios Ã‚Â· ${trees} ÃƒÂ¡rvores Ã‚Â· ${roads} vias`,
+      `Terrenos: ${lots} lotes Ã‚Â· ${blocks} quadras`,
+      `ColisÃƒÂµes carregadas: ${this.buildingCollision.length} edifÃƒÂ­cios Ã‚Â· ${this.treeCollision?.length || 0} ÃƒÂ¡rvores`,
+      `Testes de colisÃƒÂ£o: ${metrics.checksPerSecond.toFixed(0)} por segundo`,
+      `CÃƒÂ¢mera: zoom ${camera.zoom.toFixed(2)} Ã‚Â· viewport ${Math.round(view.width)}Ãƒâ€”${Math.round(view.height)}`,
+      `Minimapa: ${mapBg ? `${Math.round(mapBg.x)},${Math.round(mapBg.y)} ${mapBg.width}x${mapBg.height} vis=${mapBg.visible} mask=${mapBg.cameraFilter}` : "ausente"}`,
+      `TÃƒÂ­tulo mapa: ${mapTitle ? `${Math.round(mapTitle.x)},${Math.round(mapTitle.y)} vis=${mapTitle.visible} mask=${mapTitle.cameraFilter}` : "ausente"}`,
+      `HUD cam: ${hudCamera ? `${hudCamera.x},${hudCamera.y} ${hudCamera.width}x${hudCamera.height} z=${hudCamera.zoom} id=${hudCamera.id}` : "ausente"}`,
+      `Jogador: ${this.player ? `${Math.round(this.player.x)}, ${Math.round(this.player.y)}` : "aguardando"}`,
+      memoryLine
+    ];
+    this.perfPanelText.setText(lines.join("\n"));
+  }
+
   isBlocked(x, y) {
     const samples = [
       { x, y: y + 5 }, { x: x - PLAYER_RADIUS, y: y + 5 },
       { x: x + PLAYER_RADIUS, y: y + 5 }, { x, y: y + 5 - PLAYER_RADIUS }
     ];
-    const cellSize = 256;
-    const cellX = Math.floor(x / cellSize);
-    const cellY = Math.floor((y + 5) / cellSize);
-    const wallPoint = { x, y: y + 5 };
-    for (let cy = cellY - 1; cy <= cellY + 1; cy++) {
-      for (let cx = cellX - 1; cx <= cellX + 1; cx++) {
-        const nearbyWalls = this.wallCollision.get(`${cx}:${cy}`) || [];
-        if (nearbyWalls.some(wall => distanceToSegment(wallPoint, wall.a, wall.b) < wall.radius)) {
-          return true;
-        }
+    const candidates = this.chunkManager
+      ? this.chunkManager.getCollisionCandidates(x, y, PLAYER_RADIUS + 13)
+      : new Set([...(this.treeCollision || []), ...(this.buildingCollision || []), ...(this.wallCollision || [])]);
+
+    for (const candidate of candidates) {
+      this.performanceMetrics.collisionChecks++;
+      if (Number.isFinite(candidate.radius)) {
+        if (Phaser.Math.Distance.Between(x, y + 5, candidate.x, candidate.y) <
+            PLAYER_RADIUS + candidate.radius) return true;
+        continue;
       }
-    }
-    for (const tree of (this.treeCollision || [])) {
-      if (Phaser.Math.Distance.Between(x, y + 5, tree.x, tree.y) <
-          PLAYER_RADIUS + tree.radius) return true;
-    }
-    for (const building of this.buildingCollision) {
-      if (x < building.bounds.minX || x > building.bounds.maxX ||
-          y + 5 < building.bounds.minY || y + 5 > building.bounds.maxY) continue;
-      if (samples.some(point => pointInPolygon(point, building.rings))) return true;
+      if (candidate.bounds && (x < candidate.bounds.minX || x > candidate.bounds.maxX ||
+          y + 5 < candidate.bounds.minY || y + 5 > candidate.bounds.maxY)) continue;
+      if (candidate.segments) {
+        const point = { x, y: y + 5 };
+        const blocked = candidate.segments.some(segment => {
+          const dx = segment.b.x - segment.a.x;
+          const dy = segment.b.y - segment.a.y;
+          const lengthSq = dx * dx + dy * dy;
+          const t = lengthSq > 1e-9
+            ? Phaser.Math.Clamp(((point.x - segment.a.x) * dx + (point.y - segment.a.y) * dy) / lengthSq, 0, 1)
+            : 0;
+          const nearestX = segment.a.x + dx * t;
+          const nearestY = segment.a.y + dy * t;
+          return Phaser.Math.Distance.Between(point.x, point.y, nearestX, nearestY) <
+            PLAYER_RADIUS + (candidate.thickness || 4);
+        });
+        if (blocked) return true;
+        continue;
+      }
+      if (x < candidate.bounds.minX || x > candidate.bounds.maxX ||
+          y + 5 < candidate.bounds.minY || y + 5 > candidate.bounds.maxY) continue;
+      if (samples.some(point => pointInPolygon(point, candidate.rings))) return true;
     }
     return false;
   }
-
   update(_time, delta) {
+    this.updatePerformance(delta);
+    if (this.debugKey && Phaser.Input.Keyboard.JustDown(this.debugKey)) {
+      this.togglePerformancePanel();
+    }
     if (!this.player || !this.keys) return;
     const touch = window.__araControls || {};
     let dx = (this.keys.D.isDown || this.keys.RIGHT.isDown || touch.right ? 1 : 0) -
@@ -645,68 +472,96 @@ export default class WorldScene extends Phaser.Scene {
       if (touchInteract) touch.interact = false;
     }
 
+    this.chunkManager?.updateVisible();
     this.updateMinimapPlayer();
     if (this.toast.visible && this.time.now > this.toastUntil) this.toast.setVisible(false);
   }
 
   interact() {
-    const playerMeter = {
-      x: this.player.x / PPM,
-      y: -this.player.y / PPM
-    };
+    const nearby = this.chunkManager
+      ? this.chunkManager.getCollisionCandidates(this.player.x, this.player.y, 82)
+      : new Set(this.buildingCollision);
     let closest = null, min = Infinity;
-    for (const building of this.buildingCollision) {
+    for (const building of nearby) {
+      if (!building.rings) continue;
       const distance = Phaser.Math.Distance.Between(
         this.player.x, this.player.y, building.center.x, building.center.y
       );
       if (distance < min) { min = distance; closest = building; }
     }
-    let message = "Você está explorando as ruas de Araçatuba.";
+    let message = "VocÃƒÂª estÃƒÂ¡ explorando as ruas de AraÃƒÂ§atuba.";
     if (closest && min < 82) {
       const label = closest.name || this.humanBuildingType(closest.buildingType);
-      message = `Você está perto de: ${label}.`;
+      message = "VocÃƒÂª estÃƒÂ¡ perto de: " + label + ".";
     } else {
       let nearestRoad = null, roadDistance = Infinity;
-      for (const road of this.mapData.roads) {
-        if (!road.name) continue;
+      const nearbyRoads = this.chunkManager?.getNearbyRoads(
+        this.player.x, this.player.y, 120
+      ) || [];
+      for (const road of nearbyRoads) {
         for (const line of road.lines) {
-          for (const p of line) {
-            const world = toWorld(p, PPM);
-            const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, world.x, world.y);
-            if (d < roadDistance) { roadDistance = d; nearestRoad = road; }
+          for (const world of line) {
+            const d = Phaser.Math.Distance.Between(
+              this.player.x, this.player.y, world.x, world.y
+            );
+            if (d < roadDistance) {
+              roadDistance = d;
+              nearestRoad = road.feature;
+            }
           }
         }
       }
-      if (nearestRoad && roadDistance < 120) message = `Via próxima: ${nearestRoad.name}.`;
+      if (nearestRoad && roadDistance < 120) {
+        message = "Via prÃƒÂ³xima: " + nearestRoad.name + ".";
+      }
     }
     this.showToast(message);
   }
-
   humanBuildingType(type) {
     if (/commercial|retail|shop/.test(type)) return "estabelecimento comercial";
-    if (/industrial|warehouse/.test(type)) return "edificação industrial";
-    if (/apartments|residential/.test(type)) return "edifício residencial";
-    return "uma construção";
+    if (/industrial|warehouse/.test(type)) return "edificaÃƒÂ§ÃƒÂ£o industrial";
+    if (/apartments|residential/.test(type)) return "edifÃƒÂ­cio residencial";
+    return "uma construÃƒÂ§ÃƒÂ£o";
   }
 
   showToast(message) {
     const { width, height } = this.scale;
-    this.toast.setText(message).setOrigin(0.5).setVisible(true);
-    this.setHudPosition(this.toast, width / 2, height - 112);
+    const safe = this.getSafeAreaInsets();
+    const touchUi = window.matchMedia("(pointer: coarse), (max-width: 760px)").matches;
+    const bottomOffset = touchUi ? 190 : 26;
+    this.toast.setText(message)
+      .setPosition(width / 2, height - safe.bottom - bottomOffset)
+      .setOrigin(0.5).setVisible(true);
     this.toastUntil = this.time.now + 2400;
   }
 
   drawMinimap() {
+    if (!this.mapData || !this.minimapGraphics || !this.minimapBg) return;
     this.minimapGraphics.clear();
-    const x0 = this.scale.width - 190, y0 = 16;
-    this.minimapBg.setPosition(x0, y0);
+
+    const { width } = this.scale;
+    const safe = this.getSafeAreaInsets();
+    const scale = width < 380 ? 0.72 : width < 520 ? 0.80 : width < 760 ? 0.90 : 1;
+    const mapWidth = 174 * scale;
+    const mapHeight = 136 * scale;
+    const x0 = Math.max(safe.left + 12, width - safe.right - mapWidth - 16);
+    const y0 = safe.top + 16;
+    const centerX = x0 + mapWidth / 2;
+    const centerY = y0 + 65 * scale;
+    const innerX = x0 + 9 * scale;
+    const innerY = y0 + 9 * scale;
+    const innerWidth = 156 * scale;
+    const innerHeight = 112 * scale;
+
+    this.minimapBg.setPosition(x0, y0).setSize(mapWidth, mapHeight);
     this.minimapGraphics.fillStyle(0x26382e, 0.98);
-    this.minimapGraphics.fillRect(x0 + 9, y0 + 9, 156, 112);
+    this.minimapGraphics.fillRect(innerX, innerY, innerWidth, innerHeight);
+
     const mapPoint = p => ({
-      x: x0 + 87 + (p[0] / MAP_RADIUS) * 74,
-      y: y0 + 65 - (p[1] / MAP_RADIUS) * 52
+      x: centerX + (p[0] / MAP_RADIUS) * 74 * scale,
+      y: centerY - (p[1] / MAP_RADIUS) * 52 * scale
     });
-    this.minimapGraphics.lineStyle(1, 0x7f8b76, 0.75);
+    this.minimapGraphics.lineStyle(Math.max(0.7, scale), 0x7f8b76, 0.75);
     for (const road of this.mapData.roads) {
       for (const line of road.lines) {
         if (line.length < 2) continue;
@@ -714,73 +569,68 @@ export default class WorldScene extends Phaser.Scene {
         this.minimapGraphics.beginPath();
         this.minimapGraphics.moveTo(first.x, first.y);
         for (let i = 1; i < line.length; i++) {
-          const p = mapPoint(line[i]);
-          this.minimapGraphics.lineTo(p.x, p.y);
+          const point = mapPoint(line[i]);
+          this.minimapGraphics.lineTo(point.x, point.y);
         }
         this.minimapGraphics.strokePath();
       }
     }
+
     this.minimapGraphics.lineStyle(1, 0xb0b68e, 0.5);
-    this.minimapGraphics.strokeRect(x0 + 9, y0 + 9, 156, 112);
-    this.minimapPlayer.setPosition(x0 + 87, y0 + 65);
+    this.minimapGraphics.strokeRect(innerX, innerY, innerWidth, innerHeight);
+    this.minimapPlayer.setPosition(centerX, centerY).setScale(scale);
     this.minimapMapPoint = mapPoint;
     this.minimapTitle?.destroy();
-    this.minimapTitle = this.add.text(x0 + 87, y0 + 123, "MINIMAPA", {
-      fontFamily: "Trebuchet MS, sans-serif", fontSize: "8px",
-      color: "#dbe3c6", letterSpacing: 2
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1002);
+    this.minimapTitle = this.registerHud(this.add.text(centerX, y0 + 123 * scale, "MINIMAPA", {
+      fontFamily: "Trebuchet MS, sans-serif", fontSize: `${8 * scale}px`,
+      color: "#dbe3c6", letterSpacing: 2 * scale
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1002));
   }
 
   updateMinimapPlayer() {
     if (!this.minimapMapPoint || !this.player) return;
-    const p = this.minimapMapPoint([
+    const point = this.minimapMapPoint([
       this.player.x / PPM, -this.player.y / PPM
     ]);
-    this.setHudPosition(this.minimapPlayer, p.x, p.y);
-  }
-
-  // Converte coordenadas desejadas na tela para coordenadas do mundo HUD.
-  // Isso neutraliza o zoom da câmera sem criar uma segunda câmera.
-  screenToHudWorld(x, y) {
-    const camera = this.cameras.main;
-    const zoom = camera.zoom || 1;
-    const centerX = camera.width / 2;
-    const centerY = camera.height / 2;
-    return {
-      x: centerX + (x - centerX) / zoom,
-      y: centerY + (y - centerY) / zoom
-    };
-  }
-
-  setHudPosition(object, x, y) {
-    if (!object) return;
-    const point = this.screenToHudWorld(x, y);
-    const zoom = this.cameras.main.zoom || 1;
-    object.setPosition(point.x, point.y);
-    object.setScale(1 / zoom);
+    this.minimapPlayer.setPosition(point.x, point.y);
   }
 
   layoutHud() {
     if (!this.minimapBg) return;
     const { width, height } = this.scale;
+    this.hudCamera?.setViewport(0, 0, width, height).setScroll(0, 0).setZoom(1);
+    const safe = this.getSafeAreaInsets();
+    const left = safe.left + 18;
+    const top = safe.top + 14;
+
+    this.logoText?.setPosition(left, top);
+    this.statusText?.setPosition(left + 2, top + 31);
+    const minimapScale = width < 380 ? 0.72 : width < 520 ? 0.80 : width < 760 ? 0.90 : 1;
+    const minimapWidth = 174 * minimapScale;
+    const reservedRight = minimapWidth + safe.right + 38;
+    const statusWidth = Math.max(120, Math.min(440, width - left - reservedRight));
+    this.statusText?.setWordWrapWidth(statusWidth);
+    this.statusText?.setFontSize(width < 520 ? "10px" : "12px");
+    const statusBottom = top + 31 + (this.statusText?.height || 16);
+    const quickY = statusBottom + 7;
+    this.perfQuickText?.setPosition(left + 2, quickY);
+    this.perfQuickText?.setFontSize(width < 520 ? "9px" : "10px");
+
+    const panelX = left;
+    const panelY = quickY + 22;
+    const panelWidth = Math.max(180, Math.min(330, width - safe.left - safe.right - 28));
+    this.perfPanelBg?.setPosition(panelX, panelY).setSize(panelWidth, 220);
+    this.perfPanelText?.setPosition(panelX, panelY);
+    this.perfPanelText?.setFontSize(width < 420 ? "9px" : "10px");
+    this.perfPanelText?.setWordWrapWidth(Math.max(160, panelWidth - 18));
+
     if (this.mapData && this.minimapGraphics) this.drawMinimap();
-
-    this.setHudPosition(this.titleText, 26, 22);
-    this.setHudPosition(this.statusText, 28, 50);
-
-    const x = width - 190;
-    this.setHudPosition(this.minimapBg, x, 16);
-    this.setHudPosition(this.minimapPlayer, x + 87, 16 + 65);
-    if (this.minimapTitle) this.setHudPosition(this.minimapTitle, x + 87, 16 + 123);
-
-    // O Graphics do minimapa desenha em coordenadas locais da tela.
-    const zoom = this.cameras.main.zoom || 1;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    this.minimapGraphics
-      .setPosition(centerX * (1 - 1 / zoom), centerY * (1 - 1 / zoom))
-      .setScale(1 / zoom);
-
-    if (this.toast?.visible) this.setHudPosition(this.toast, width / 2, height - 112);
+    if (this.toast?.visible) {
+      const touchUi = window.matchMedia("(pointer: coarse), (max-width: 760px)").matches;
+      this.toast.setPosition(
+        width / 2,
+        height - safe.bottom - (touchUi ? 190 : 26)
+      );
+    }
   }
 }
