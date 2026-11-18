@@ -23,36 +23,6 @@ const palette = {
   industrial: [0x777c76, 0x8a8a7b]
 };
 
-function clipSegmentToRect(a, b, rect) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  let t0 = 0;
-  let t1 = 1;
-  const p = [-dx, dx, -dy, dy];
-  const q = [
-    a.x - rect.left,
-    rect.right - a.x,
-    a.y - rect.top,
-    rect.bottom - a.y
-  ];
-
-  for (let i = 0; i < 4; i++) {
-    if (Math.abs(p[i]) < 1e-9) {
-      if (q[i] < 0) return null;
-      continue;
-    }
-    const t = q[i] / p[i];
-    if (p[i] < 0) t0 = Math.max(t0, t);
-    else t1 = Math.min(t1, t);
-    if (t0 > t1) return null;
-  }
-
-  return {
-    a: { x: a.x + t0 * dx, y: a.y + t0 * dy },
-    b: { x: a.x + t1 * dx, y: a.y + t1 * dy }
-  };
-}
-
 const hash = (text) => {
   let h = 2166136261;
   for (let i = 0; i < String(text).length; i++) {
@@ -94,7 +64,7 @@ export default class WorldScene extends Phaser.Scene {
       frameWidth: 32, frameHeight: 32
     });
 
-    // Biblioteca V4 do Gemini: modo de prévia, sem substituir os arquivos V2.
+    // Biblioteca V4 do Gemini: modo de prÃƒÂ©via, sem substituir os arquivos V2.
     this.load.image("v4-ground-grass", assetUrl("assets/environment/residential-v4-preview/surfaces/01_grama_256x256.png"));
     this.load.image("v4-ground-dirt", assetUrl("assets/environment/residential-v4-preview/surfaces/02_terra_256x256.png"));
     this.load.image("v4-ground-sand", assetUrl("assets/environment/residential-v4-preview/surfaces/03_areia_256x256.png"));
@@ -107,7 +77,7 @@ export default class WorldScene extends Phaser.Scene {
     this.load.image("v4-roof-metal", assetUrl("assets/environment/residential-v4-preview/surfaces/10_telhado_metalico_256x256.png"));
     this.load.image("v4-surface-caqui", assetUrl("assets/environment/residential-v4-preview/surfaces/11_pisos_externos_caquinho_256x256.png"));
 
-    // Componentes frontais de muro/portão V4, na mesma perspectiva 3/4 do jogo.
+    // Componentes frontais de muro/portÃƒÂ£o V4, na mesma perspectiva 3/4 do jogo.
     this.load.image("v4-wall-front", assetUrl("assets/environment/residential-v4-preview/components/09_muro_alto_frente_128x192.png"));
     this.load.image("v4-wall-corner-right", assetUrl("assets/environment/residential-v4-preview/components/10_muro_canto_128x192.png"));
     this.load.image("v4-wall-corner-left", assetUrl("assets/environment/residential-v4-preview/components/17_muro_canto_esquerda_128x192.png"));
@@ -162,7 +132,7 @@ export default class WorldScene extends Phaser.Scene {
     this.hudObjects = new Set();
     this.hudCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height, false, "HUD");
     this.hudCamera.setScroll(0, 0).setZoom(1).setRoundPixels(true);
-    this.hudCamera.inputEnabled = false;
+    this.hudCamera.inputEnabled = true;
     this.logoText = this.registerHud(this.add.text(0, 0, "ARAÇATEXAS", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "21px",
       color: "#fff1cb", fontStyle: "bold", stroke: "#243329", strokeThickness: 5
@@ -201,12 +171,23 @@ export default class WorldScene extends Phaser.Scene {
     );
     this.debugKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
 
-    this.minimapBg = this.registerHud(this.add.rectangle(0, 0, 224, 152, 0x17241d, 0.86)
-      .setOrigin(0).setScrollFactor(0).setDepth(1000)
-      .setStrokeStyle(2, 0x9ba982, 0.9));
+    this.minimapBg = this.registerHud(this.add.circle(0, 0, 82, 0x17241d, 0.98)
+      .setScrollFactor(0).setDepth(1000)
+      .setStrokeStyle(3, 0x9ba982, 0.98)
+      .setInteractive({ useHandCursor: true }));
+    this.minimapBg.on("pointerdown", () => this.toggleMapOverlay());
     this.minimapGraphics = this.registerHud(this.add.graphics().setScrollFactor(0).setDepth(1001));
-    this.minimapPlayer = this.registerHud(this.add.circle(0, 0, 3, 0xffdf78, 1)
-      .setScrollFactor(0).setDepth(1002).setStrokeStyle(1, 0x17241d));
+    this.minimapMaskShape = this.registerHud(this.add.circle(0, 0, 76).setVisible(false));
+    this.minimapMask = this.minimapMaskShape.createGeometryMask();
+    this.minimapGraphics.setMask(this.minimapMask);
+    this.minimapPlayer = this.registerHud(this.add.triangle(0, 0, 0, -9, 6, 7, -6, 7,
+      0xffdf78, 1).setScrollFactor(0).setDepth(1002)
+      .setStrokeStyle(1.5, 0x17241d, 1));
+
+    this.mapOverlayItems = [];
+    this.mapToggleKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+    this.mapCloseKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.createMapOverlay();
 
     this.scale.on("resize", this.layoutHud, this);
     this.layoutHud();
@@ -218,7 +199,7 @@ export default class WorldScene extends Phaser.Scene {
       this.mapData = await loadPreparedMap();
       this.buildWorld();
       this.statusText.setText(
-        `Araçatuba Shopping · Avenida Brasília | ${this.mapData.meta.radius_m} m de raio`
+        `Araçatuba Shopping · Avenida Brasília |   ${this.mapData.meta.radius_m} m de raio`
       );
       this.layoutHud();
     } catch (error) {
@@ -403,8 +384,7 @@ export default class WorldScene extends Phaser.Scene {
     const memoryLine = memory
       ? `Memória JS: ${(memory / 1048576).toFixed(0)} MB`
       : "Memória JS: não exposta pelo navegador";
-    const mapTitle = this.minimapTitle;
-    const minimapRange = this.minimapCoverageMeters || { width: 0, height: 0 };
+    const coverage = this.minimapCoverageMeters || { width: 0, height: 0 };
     const hudCamera = this.hudCamera;
     const lines = [
       "ANÁLISE DO JOGO · F3 fecha",
@@ -418,8 +398,7 @@ export default class WorldScene extends Phaser.Scene {
       `Colisões carregadas: ${this.buildingCollision.length} edifícios · ${this.treeCollision?.length || 0} árvores`,
       `Testes de colisão: ${metrics.checksPerSecond.toFixed(0)} por segundo`,
       `Câmera: zoom ${camera.zoom.toFixed(2)} · viewport ${Math.round(view.width)}×${Math.round(view.height)}`,
-      `Minimapa: ${MINIMAP_RANGE_MULTIPLIER}x tela · ${minimapRange.width.toFixed(0)} x ${minimapRange.height.toFixed(0)} m`,
-      `Título mapa: ${mapTitle ? `${Math.round(mapTitle.x)},${Math.round(mapTitle.y)} vis=${mapTitle.visible} mask=${mapTitle.cameraFilter}` : "ausente"}`,
+      `Radar: área 3× · ${coverage.width.toFixed(0)} × ${coverage.height.toFixed(0)} m`,
       `HUD cam: ${hudCamera ? `${hudCamera.x},${hudCamera.y} ${hudCamera.width}x${hudCamera.height} z=${hudCamera.zoom} id=${hudCamera.id}` : "ausente"}`,
       `Jogador: ${this.player ? `${Math.round(this.player.x)}, ${Math.round(this.player.y)}` : "aguardando"}`,
       memoryLine
@@ -473,6 +452,14 @@ export default class WorldScene extends Phaser.Scene {
     if (this.debugKey && Phaser.Input.Keyboard.JustDown(this.debugKey)) {
       this.togglePerformancePanel();
     }
+    if (this.mapToggleKey && Phaser.Input.Keyboard.JustDown(this.mapToggleKey)) {
+      this.toggleMapOverlay();
+    }
+    if (this.mapCloseKey && Phaser.Input.Keyboard.JustDown(this.mapCloseKey) &&
+        this.mapOverlay?.visible) {
+      this.toggleMapOverlay(false);
+    }
+    if (this.mapOverlay?.visible) return;
     if (!this.player || !this.keys) return;
     const touch = window.__araControls || {};
     let dx = (this.keys.D.isDown || this.keys.RIGHT.isDown || touch.right ? 1 : 0) -
@@ -571,108 +558,59 @@ export default class WorldScene extends Phaser.Scene {
   drawMinimap() {
     if (!this.mapData || !this.minimapGraphics || !this.minimapBg) return;
 
-    const { width } = this.scale;
+    const { width, height } = this.scale;
     const safe = this.getSafeAreaInsets();
-    const scale = width < 380 ? 0.72 : width < 520 ? 0.80 : width < 760 ? 0.90 : 1;
-    const mapWidth = 224 * scale;
-    const mapHeight = 152 * scale;
-    const visibleWidth = Math.min(width, (window.innerWidth || width) / Math.max(1, window.devicePixelRatio || 1));
-    const x0 = Math.max(safe.left + 12, visibleWidth - safe.right - mapWidth - 16);
-    const y0 = safe.top + 16;
-    const innerX = x0 + 8 * scale;
-    const innerY = y0 + 8 * scale;
-    const innerWidth = 208 * scale;
-    const innerHeight = 116 * scale;
-    const centerX = innerX + innerWidth / 2;
-    const centerY = innerY + innerHeight / 2;
+    const touchUi = window.matchMedia("(pointer: coarse), (max-width: 760px)").matches;
+    const radius = width < 420 ? 62 : width < 760 ? 70 : 78;
+    const centerX = touchUi ? width - safe.right - radius - 18 : safe.left + radius + 18;
+    const centerY = touchUi ? safe.top + radius + 20 : height - safe.bottom - radius - 24;
     const view = this.cameras.main.worldView;
     const focusX = this.player?.x ?? view.centerX;
     const focusY = this.player?.y ?? view.centerY;
-    const coverageWidthPx = Math.max(1, view.width * MINIMAP_RANGE_MULTIPLIER);
-    const coverageHeightPx = Math.max(1, view.height * MINIMAP_RANGE_MULTIPLIER);
+    const diameter = radius * 2;
+    // Mantém a proporção do mapa: o radar cobre 3x o maior eixo da tela.
+    const coverageWorldPx = Math.max(1, Math.max(view.width, view.height) * MINIMAP_RANGE_MULTIPLIER);
 
-    this.minimapBg.setPosition(x0, y0).setSize(mapWidth, mapHeight);
+    this.minimapBg.setPosition(centerX, centerY).setRadius(radius);
+    this.minimapMaskShape.setPosition(centerX, centerY).setRadius(radius - 5);
     this.minimapGraphics.clear();
-    this.minimapGraphics.fillStyle(0x26382e, 0.98);
-    this.minimapGraphics.fillRect(innerX, innerY, innerWidth, innerHeight);
+    this.minimapGraphics.fillStyle(0x26382e, 1);
+    this.minimapGraphics.fillCircle(centerX, centerY, radius - 5);
 
-    // O mapa acompanha o jogador. Cada eixo cobre 3x o que a câmera mostra.
+    // Radar fixo ao norte: o mundo se move sob o indicador central do jogador.
     const mapPoint = p => ({
-      x: centerX + ((p[0] * PPM - focusX) / coverageWidthPx) * innerWidth,
-      y: centerY + ((-p[1] * PPM - focusY) / coverageHeightPx) * innerHeight
+      x: centerX + ((p[0] * PPM - focusX) / coverageWorldPx) * diameter,
+      y: centerY + ((-p[1] * PPM - focusY) / coverageWorldPx) * diameter
     });
-    const clipRect = {
-      left: innerX + 1,
-      top: innerY + 1,
-      right: innerX + innerWidth - 1,
-      bottom: innerY + innerHeight - 1
-    };
-
-    this.minimapGraphics.lineStyle(Math.max(0.9, 1.15 * scale), 0x9aa58d, 0.88);
+    this.minimapGraphics.lineStyle(Math.max(1, radius / 62), 0xb8c0aa, 0.92);
     for (const road of this.mapData.roads) {
       for (const line of road.lines) {
         if (line.length < 2) continue;
+        const first = mapPoint(line[0]);
+        this.minimapGraphics.beginPath();
+        this.minimapGraphics.moveTo(first.x, first.y);
         for (let i = 1; i < line.length; i++) {
-          const segment = clipSegmentToRect(
-            mapPoint(line[i - 1]),
-            mapPoint(line[i]),
-            clipRect
-          );
-          if (!segment) continue;
-          this.minimapGraphics.beginPath();
-          this.minimapGraphics.moveTo(segment.a.x, segment.a.y);
-          this.minimapGraphics.lineTo(segment.b.x, segment.b.y);
-          this.minimapGraphics.strokePath();
+          const point = mapPoint(line[i]);
+          this.minimapGraphics.lineTo(point.x, point.y);
         }
+        this.minimapGraphics.strokePath();
       }
     }
 
-    // O retângulo amarelo representa o enquadramento da tela do computador.
-    const cameraCenter = mapPoint([
-      view.centerX / PPM,
-      -view.centerY / PPM
-    ]);
-    const screenWidth = innerWidth / MINIMAP_RANGE_MULTIPLIER;
-    const screenHeight = innerHeight / MINIMAP_RANGE_MULTIPLIER;
-    this.minimapGraphics.lineStyle(1.25 * scale, 0xffdf78, 0.95);
-    this.minimapGraphics.strokeRect(
-      cameraCenter.x - screenWidth / 2,
-      cameraCenter.y - screenHeight / 2,
-      screenWidth,
-      screenHeight
-    );
-
-    this.minimapGraphics.lineStyle(1, 0xb0b68e, 0.65);
-    this.minimapGraphics.strokeRect(innerX, innerY, innerWidth, innerHeight);
-    const playerPoint = mapPoint([focusX / PPM, -focusY / PPM]);
-    this.minimapPlayer.setPosition(playerPoint.x, playerPoint.y).setScale(scale);
+    this.minimapGraphics.lineStyle(1, 0xe2d7ae, 0.55);
+    this.minimapGraphics.strokeCircle(centerX, centerY, radius - 5);
+    this.minimapPlayer.setPosition(centerX, centerY).setScale(radius / 78);
+    this.minimapPlayer.setRotation(({ up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 })[this.facing] || 0);
 
     this.minimapMapPoint = mapPoint;
     this.minimapFocus = { x: focusX, y: focusY };
     this.minimapCoverageMeters = {
-      width: coverageWidthPx / PPM,
-      height: coverageHeightPx / PPM
+      width: coverageWorldPx / PPM,
+      height: coverageWorldPx / PPM
     };
     this.minimapLastRenderAt = this.time.now;
-
-    const titleY = y0 + 130 * scale;
-    if (!this.minimapTitle || !this.minimapTitle.active) {
-      this.minimapTitle = this.registerHud(this.add.text(
-        centerX, titleY, "MINIMAPA · ÁREA 3×",
-        {
-          fontFamily: "Trebuchet MS, sans-serif",
-          fontSize: `${8 * scale}px`,
-          color: "#dbe3c6",
-          letterSpacing: 1.3 * scale
-        }
-      ).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1002));
-    } else {
-      this.minimapTitle
-        .setPosition(centerX, titleY)
-        .setText("MINIMAPA · ÁREA 3×")
-        .setFontSize(`${8 * scale}px`);
-    }
   }
+
   updateMinimapPlayer() {
     if (!this.player) return;
     const now = this.time.now;
@@ -685,13 +623,121 @@ export default class WorldScene extends Phaser.Scene {
         (moved && now - this.minimapLastRenderAt >= MINIMAP_REDRAW_INTERVAL_MS)) {
       this.drawMinimap();
     }
-
-    const point = this.minimapMapPoint?.([
-      this.player.x / PPM,
-      -this.player.y / PPM
-    ]);
-    if (point) this.minimapPlayer.setPosition(point.x, point.y);
+    this.minimapPlayer?.setRotation(
+      ({ up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 })[this.facing] || 0
+    );
   }
+
+  createMapOverlay() {
+    const depth = 1300;
+    const bg = this.registerHud(this.add.rectangle(0, 0, this.scale.width, this.scale.height,
+      0x080d0a, 0.94).setOrigin(0).setScrollFactor(0).setDepth(depth).setVisible(false));
+    const panel = this.registerHud(this.add.rectangle(0, 0, 100, 100, 0x18251e, 0.98)
+      .setOrigin(0).setScrollFactor(0).setDepth(depth + 1)
+      .setStrokeStyle(2, 0x9ba982, 0.95).setVisible(false));
+    const graphics = this.registerHud(this.add.graphics().setScrollFactor(0)
+      .setDepth(depth + 2).setVisible(false));
+    const title = this.registerHud(this.add.text(0, 0, "MAPA DA REGIÃO", {
+      fontFamily: "Trebuchet MS, sans-serif", fontSize: "20px",
+      color: "#fff1cb", fontStyle: "bold", stroke: "#17241d", strokeThickness: 3
+    }).setScrollFactor(0).setDepth(depth + 3).setVisible(false));
+    const hint = this.registerHud(this.add.text(0, 0, "M / ESC  FECHAR", {
+      fontFamily: "Consolas, monospace", fontSize: "12px",
+      color: "#d8e6c5", backgroundColor: "#26382e",
+      padding: { x: 10, y: 7 }
+    }).setScrollFactor(0).setDepth(depth + 3).setInteractive({ useHandCursor: true })
+      .setVisible(false));
+    hint.on("pointerdown", () => this.toggleMapOverlay(false));
+    this.mapOverlay = { bg, panel, graphics, title, hint, visible: false };
+    this.layoutMapOverlay();
+  }
+
+  layoutMapOverlay() {
+    if (!this.mapOverlay) return;
+    const { width, height } = this.scale;
+    const margin = Math.max(18, Math.min(54, width * 0.055));
+    const top = 68;
+    const panel = this.mapOverlay.panel;
+    panel.setPosition(margin, top).setSize(width - margin * 2, Math.max(120, height - top - margin));
+    this.mapOverlay.bg.setSize(width, height);
+    this.mapOverlay.title.setPosition(margin + 18, 20);
+    this.mapOverlay.hint.setPosition(width - margin - 130, 19);
+    if (this.mapOverlay.visible) this.drawExpandedMap();
+  }
+
+  drawExpandedMap() {
+    if (!this.mapData || !this.mapOverlay) return;
+    const { width, height } = this.scale;
+    const margin = Math.max(18, Math.min(54, width * 0.055));
+    const top = 68;
+    const x = margin + 14;
+    const y = top + 14;
+    const w = width - margin * 2 - 28;
+    const h = height - top - margin - 28;
+    const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+    for (const road of this.mapData.roads) {
+      for (const line of road.lines) {
+        for (const point of line) {
+          bounds.minX = Math.min(bounds.minX, point[0]);
+          bounds.maxX = Math.max(bounds.maxX, point[0]);
+          bounds.minY = Math.min(bounds.minY, point[1]);
+          bounds.maxY = Math.max(bounds.maxY, point[1]);
+        }
+      }
+    }
+    if (!Number.isFinite(bounds.minX)) return;
+    const worldW = Math.max(1, bounds.maxX - bounds.minX);
+    const worldH = Math.max(1, bounds.maxY - bounds.minY);
+    const fit = Math.min(w / worldW, h / worldH);
+    const drawW = worldW * fit;
+    const drawH = worldH * fit;
+    const offsetX = x + (w - drawW) / 2;
+    const offsetY = y + (h - drawH) / 2;
+    const pointOnMap = point => ({
+      x: offsetX + (point[0] - bounds.minX) * fit,
+      y: offsetY + (bounds.maxY - point[1]) * fit
+    });
+
+    const g = this.mapOverlay.graphics;
+    g.clear();
+    g.fillStyle(0x26382e, 1);
+    g.fillRect(x, y, w, h);
+    g.lineStyle(Math.max(1.2, Math.min(3, fit * 2.2)), 0xc4c9b4, 0.95);
+    for (const road of this.mapData.roads) {
+      for (const line of road.lines) {
+        if (line.length < 2) continue;
+        const first = pointOnMap(line[0]);
+        g.beginPath();
+        g.moveTo(first.x, first.y);
+        for (let i = 1; i < line.length; i++) {
+          const point = pointOnMap(line[i]);
+          g.lineTo(point.x, point.y);
+        }
+        g.strokePath();
+      }
+    }
+    if (this.player) {
+      const playerPoint = pointOnMap([this.player.x / PPM, -this.player.y / PPM]);
+      g.fillStyle(0xffdf78, 1);
+      g.fillCircle(playerPoint.x, playerPoint.y, 5);
+      g.lineStyle(1.5, 0x17241d, 1);
+      g.strokeCircle(playerPoint.x, playerPoint.y, 5);
+    }
+    g.lineStyle(1, 0x9ba982, 0.7);
+    g.strokeRect(x, y, w, h);
+  }
+
+  toggleMapOverlay(force) {
+    if (!this.mapOverlay) return;
+    const visible = typeof force === "boolean" ? force : !this.mapOverlay.visible;
+    this.mapOverlay.visible = visible;
+    for (const item of Object.values(this.mapOverlay)) {
+      if (item?.setVisible) item.setVisible(visible);
+    }
+    if (visible) this.drawExpandedMap();
+  }
+
   layoutHud() {
     if (!this.minimapBg) return;
     const { width, height } = this.scale;
@@ -702,9 +748,9 @@ export default class WorldScene extends Phaser.Scene {
 
     this.logoText?.setPosition(left, top);
     this.statusText?.setPosition(left + 2, top + 31);
-    const minimapScale = width < 380 ? 0.72 : width < 520 ? 0.80 : width < 760 ? 0.90 : 1;
-    const minimapWidth = 224 * minimapScale;
-    const reservedRight = minimapWidth + safe.right + 38;
+    const touchUi = window.matchMedia("(pointer: coarse), (max-width: 760px)").matches;
+    const minimapWidth = width < 420 ? 124 : width < 760 ? 140 : 156;
+    const reservedRight = touchUi ? minimapWidth + safe.right + 38 : 38;
     const statusWidth = Math.max(120, Math.min(440, width - left - reservedRight));
     this.statusText?.setWordWrapWidth(statusWidth);
     this.statusText?.setFontSize(width < 520 ? "10px" : "12px");
@@ -722,6 +768,7 @@ export default class WorldScene extends Phaser.Scene {
     this.perfPanelText?.setWordWrapWidth(Math.max(160, panelWidth - 18));
 
     if (this.mapData && this.minimapGraphics) this.drawMinimap();
+    this.layoutMapOverlay();
     if (this.toast?.visible) {
       const touchUi = window.matchMedia("(pointer: coarse), (max-width: 760px)").matches;
       this.toast.setPosition(
