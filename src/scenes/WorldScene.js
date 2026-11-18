@@ -9,7 +9,8 @@ const PUBLIC_BASE = import.meta.env.BASE_URL;
 const assetUrl = (path) => `${PUBLIC_BASE}${path}`;
 
 const PPM = 16;
-const MAP_RADIUS = 650;
+const MINIMAP_RANGE_MULTIPLIER = 3;
+const MINIMAP_REDRAW_INTERVAL_MS = 100;
 const WORLD_EXTENT = 710;
 const PLAYER_SPEED = 118;
 const PLAYER_RADIUS = 8;
@@ -21,6 +22,36 @@ const palette = {
   commercial: [0x657b83, 0x788b8b, 0x8c8272],
   industrial: [0x777c76, 0x8a8a7b]
 };
+
+function clipSegmentToRect(a, b, rect) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  let t0 = 0;
+  let t1 = 1;
+  const p = [-dx, dx, -dy, dy];
+  const q = [
+    a.x - rect.left,
+    rect.right - a.x,
+    a.y - rect.top,
+    rect.bottom - a.y
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    if (Math.abs(p[i]) < 1e-9) {
+      if (q[i] < 0) return null;
+      continue;
+    }
+    const t = q[i] / p[i];
+    if (p[i] < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 > t1) return null;
+  }
+
+  return {
+    a: { x: a.x + t0 * dx, y: a.y + t0 * dy },
+    b: { x: a.x + t1 * dx, y: a.y + t1 * dy }
+  };
+}
 
 const hash = (text) => {
   let h = 2166136261;
@@ -43,6 +74,8 @@ export default class WorldScene extends Phaser.Scene {
     this.facing = "down";
     this.touch = window.__araControls;
     this.toastUntil = 0;
+    this.minimapLastRenderAt = 0;
+    this.minimapFocus = null;
     this.v4Preview = new URLSearchParams(window.location.search).get("v4preview") === "1";
     this.performanceMetrics = {
       elapsedMs: 0, frames: 0, fps: 0, averageFps: 0,
@@ -61,7 +94,7 @@ export default class WorldScene extends Phaser.Scene {
       frameWidth: 32, frameHeight: 32
     });
 
-    // Biblioteca V4 do Gemini: modo de prÃƒÂ©via, sem substituir os arquivos V2.
+    // Biblioteca V4 do Gemini: modo de prévia, sem substituir os arquivos V2.
     this.load.image("v4-ground-grass", assetUrl("assets/environment/residential-v4-preview/surfaces/01_grama_256x256.png"));
     this.load.image("v4-ground-dirt", assetUrl("assets/environment/residential-v4-preview/surfaces/02_terra_256x256.png"));
     this.load.image("v4-ground-sand", assetUrl("assets/environment/residential-v4-preview/surfaces/03_areia_256x256.png"));
@@ -74,7 +107,7 @@ export default class WorldScene extends Phaser.Scene {
     this.load.image("v4-roof-metal", assetUrl("assets/environment/residential-v4-preview/surfaces/10_telhado_metalico_256x256.png"));
     this.load.image("v4-surface-caqui", assetUrl("assets/environment/residential-v4-preview/surfaces/11_pisos_externos_caquinho_256x256.png"));
 
-    // Componentes frontais de muro/portÃƒÂ£o V4, na mesma perspectiva 3/4 do jogo.
+    // Componentes frontais de muro/portão V4, na mesma perspectiva 3/4 do jogo.
     this.load.image("v4-wall-front", assetUrl("assets/environment/residential-v4-preview/components/09_muro_alto_frente_128x192.png"));
     this.load.image("v4-wall-corner-right", assetUrl("assets/environment/residential-v4-preview/components/10_muro_canto_128x192.png"));
     this.load.image("v4-wall-corner-left", assetUrl("assets/environment/residential-v4-preview/components/17_muro_canto_esquerda_128x192.png"));
@@ -130,18 +163,18 @@ export default class WorldScene extends Phaser.Scene {
     this.hudCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height, false, "HUD");
     this.hudCamera.setScroll(0, 0).setZoom(1).setRoundPixels(true);
     this.hudCamera.inputEnabled = false;
-    this.logoText = this.registerHud(this.add.text(0, 0, "ARAÃƒâ€¡ATEXAS", {
+    this.logoText = this.registerHud(this.add.text(0, 0, "ARAÇATEXAS", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "21px",
       color: "#fff1cb", fontStyle: "bold", stroke: "#243329", strokeThickness: 5
     }).setScrollFactor(0).setDepth(1000));
 
-    this.statusText = this.registerHud(this.add.text(0, 0, "Carregando a regiÃƒÂ£o...", {
+    this.statusText = this.registerHud(this.add.text(0, 0, "Carregando a região...", {
       fontFamily: "Trebuchet MS, sans-serif", fontSize: "12px",
       color: "#e5e9ce", stroke: "#203027", strokeThickness: 3,
       wordWrap: { width: 420 }
     }).setScrollFactor(0).setDepth(1000));
 
-    this.perfQuickText = this.registerHud(this.add.text(0, 0, "FPS -- Ã‚Â· quadro -- ms Ã‚Â· F3 anÃƒÂ¡lise", {
+    this.perfQuickText = this.registerHud(this.add.text(0, 0, "FPS -- · quadro -- ms · F3 análise", {
       fontFamily: "Consolas, monospace", fontSize: "10px",
       color: "#d8e6c5", stroke: "#17241d", strokeThickness: 3
     }).setScrollFactor(0).setDepth(1000));
@@ -168,7 +201,7 @@ export default class WorldScene extends Phaser.Scene {
     );
     this.debugKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.F3);
 
-    this.minimapBg = this.registerHud(this.add.rectangle(0, 0, 174, 136, 0x17241d, 0.86)
+    this.minimapBg = this.registerHud(this.add.rectangle(0, 0, 224, 152, 0x17241d, 0.86)
       .setOrigin(0).setScrollFactor(0).setDepth(1000)
       .setStrokeStyle(2, 0x9ba982, 0.9));
     this.minimapGraphics = this.registerHud(this.add.graphics().setScrollFactor(0).setDepth(1001));
@@ -185,11 +218,11 @@ export default class WorldScene extends Phaser.Scene {
       this.mapData = await loadPreparedMap();
       this.buildWorld();
       this.statusText.setText(
-        `AraÃƒÂ§atuba Shopping Ã‚Â· Avenida BrasÃƒÂ­lia   |   ${this.mapData.meta.radius_m} m de raio`
+        `Araçatuba Shopping · Avenida Brasília | ${this.mapData.meta.radius_m} m de raio`
       );
       this.layoutHud();
     } catch (error) {
-      console.error("[AraÃƒÂ§atexas] NÃƒÂ£o foi possÃƒÂ­vel carregar o mapa:", error);
+      console.error("[Araçatexas] Não foi possível carregar o mapa:", error);
       this.showSetupMessage(error.message);
     }
   }
@@ -200,7 +233,7 @@ export default class WorldScene extends Phaser.Scene {
       0x18251e, 0.94).setScrollFactor(0).setDepth(1200)
       .setStrokeStyle(2, 0x9aaa7c));
     const title = this.registerHud(this.add.text(width / 2, height / 2 - 82,
-      "MAPA REAL AINDA NÃƒÆ’O PREPARADO", {
+      "MAPA REAL AINDA NÃO PREPARADO", {
         fontFamily: "Trebuchet MS, sans-serif", fontSize: "20px",
         color: "#f2dfaa", fontStyle: "bold", align: "center"
       }).setOrigin(0.5).setScrollFactor(0).setDepth(1201));
@@ -345,7 +378,7 @@ export default class WorldScene extends Phaser.Scene {
     const low = metrics.fps < 30;
     this.perfQuickText.setColor(low ? "#ffb5a5" : "#d8e6c5");
     this.perfQuickText.setText(
-      `FPS ${fps} Ã‚Â· quadro ${frame} ms Ã‚Â· F3 anÃƒÂ¡lise`
+      `FPS ${fps} · quadro ${frame} ms · F3 análise`
     );
     if (this.perfPanelBg.visible) this.refreshPerformancePanel();
   }
@@ -368,25 +401,25 @@ export default class WorldScene extends Phaser.Scene {
     const blocks = counts.blocks || 0;
     const memory = window.performance?.memory?.usedJSHeapSize;
     const memoryLine = memory
-      ? `MemÃƒÂ³ria JS: ${(memory / 1048576).toFixed(0)} MB`
-      : "MemÃƒÂ³ria JS: nÃƒÂ£o exposta pelo navegador";
-    const mapBg = this.minimapBg;
+      ? `Memória JS: ${(memory / 1048576).toFixed(0)} MB`
+      : "Memória JS: não exposta pelo navegador";
     const mapTitle = this.minimapTitle;
+    const minimapRange = this.minimapCoverageMeters || { width: 0, height: 0 };
     const hudCamera = this.hudCamera;
     const lines = [
-      "ANÃƒÂLISE DO JOGO Ã‚Â· F3 fecha",
-      `FPS atual: ${metrics.fps.toFixed(1)} Ã‚Â· mÃƒÂ©dia 5s: ${metrics.averageFps.toFixed(1)}`,
-      `FPS mÃƒÂ­n/mÃƒÂ¡x 5s: ${metrics.minFps.toFixed(1)} / ${metrics.maxFps.toFixed(1)}`,
-      `Quadro mÃƒÂ©dio/pico: ${metrics.frameMs.toFixed(1)} / ${metrics.maxFrameMs.toFixed(1)} ms`,
-      `Objetos: ${totalObjects} total Ã‚Â· ${activeObjects} ativos Ã‚Â· ${visibleFlags} habilitados`,
-      `Graphics: ${graphicsObjects} objetos Ã‚Â· chunks ${this.chunkManager?.loaded.size || 0} ativos Ã‚Â· ${this.chunkManager?.loadingCount || 0} carregando`,
-      `Mapa: ${buildings} edifÃƒÂ­cios Ã‚Â· ${trees} ÃƒÂ¡rvores Ã‚Â· ${roads} vias`,
-      `Terrenos: ${lots} lotes Ã‚Â· ${blocks} quadras`,
-      `ColisÃƒÂµes carregadas: ${this.buildingCollision.length} edifÃƒÂ­cios Ã‚Â· ${this.treeCollision?.length || 0} ÃƒÂ¡rvores`,
-      `Testes de colisÃƒÂ£o: ${metrics.checksPerSecond.toFixed(0)} por segundo`,
-      `CÃƒÂ¢mera: zoom ${camera.zoom.toFixed(2)} Ã‚Â· viewport ${Math.round(view.width)}Ãƒâ€”${Math.round(view.height)}`,
-      `Minimapa: ${mapBg ? `${Math.round(mapBg.x)},${Math.round(mapBg.y)} ${mapBg.width}x${mapBg.height} vis=${mapBg.visible} mask=${mapBg.cameraFilter}` : "ausente"}`,
-      `TÃƒÂ­tulo mapa: ${mapTitle ? `${Math.round(mapTitle.x)},${Math.round(mapTitle.y)} vis=${mapTitle.visible} mask=${mapTitle.cameraFilter}` : "ausente"}`,
+      "ANÁLISE DO JOGO · F3 fecha",
+      `FPS atual: ${metrics.fps.toFixed(1)} · média 5s: ${metrics.averageFps.toFixed(1)}`,
+      `FPS mín/máx 5s: ${metrics.minFps.toFixed(1)} / ${metrics.maxFps.toFixed(1)}`,
+      `Quadro médio/pico: ${metrics.frameMs.toFixed(1)} / ${metrics.maxFrameMs.toFixed(1)} ms`,
+      `Objetos: ${totalObjects} total · ${activeObjects} ativos · ${visibleFlags} habilitados`,
+      `Graphics: ${graphicsObjects} objetos · chunks ${this.chunkManager?.loaded.size || 0} ativos · ${this.chunkManager?.loadingCount || 0} carregando`,
+      `Mapa: ${buildings} edifícios · ${trees} árvores · ${roads} vias`,
+      `Terrenos: ${lots} lotes · ${blocks} quadras`,
+      `Colisões carregadas: ${this.buildingCollision.length} edifícios · ${this.treeCollision?.length || 0} árvores`,
+      `Testes de colisão: ${metrics.checksPerSecond.toFixed(0)} por segundo`,
+      `Câmera: zoom ${camera.zoom.toFixed(2)} · viewport ${Math.round(view.width)}×${Math.round(view.height)}`,
+      `Minimapa: ${MINIMAP_RANGE_MULTIPLIER}x tela · ${minimapRange.width.toFixed(0)} x ${minimapRange.height.toFixed(0)} m`,
+      `Título mapa: ${mapTitle ? `${Math.round(mapTitle.x)},${Math.round(mapTitle.y)} vis=${mapTitle.visible} mask=${mapTitle.cameraFilter}` : "ausente"}`,
       `HUD cam: ${hudCamera ? `${hudCamera.x},${hudCamera.y} ${hudCamera.width}x${hudCamera.height} z=${hudCamera.zoom} id=${hudCamera.id}` : "ausente"}`,
       `Jogador: ${this.player ? `${Math.round(this.player.x)}, ${Math.round(this.player.y)}` : "aguardando"}`,
       memoryLine
@@ -489,10 +522,10 @@ export default class WorldScene extends Phaser.Scene {
       );
       if (distance < min) { min = distance; closest = building; }
     }
-    let message = "VocÃƒÂª estÃƒÂ¡ explorando as ruas de AraÃƒÂ§atuba.";
+    let message = "Você está explorando as ruas de Araçatuba.";
     if (closest && min < 82) {
       const label = closest.name || this.humanBuildingType(closest.buildingType);
-      message = "VocÃƒÂª estÃƒÂ¡ perto de: " + label + ".";
+      message = "Você está perto de: " + label + ".";
     } else {
       let nearestRoad = null, roadDistance = Infinity;
       const nearbyRoads = this.chunkManager?.getNearbyRoads(
@@ -512,16 +545,16 @@ export default class WorldScene extends Phaser.Scene {
         }
       }
       if (nearestRoad && roadDistance < 120) {
-        message = "Via prÃƒÂ³xima: " + nearestRoad.name + ".";
+        message = "Via próxima: " + nearestRoad.name + ".";
       }
     }
     this.showToast(message);
   }
   humanBuildingType(type) {
     if (/commercial|retail|shop/.test(type)) return "estabelecimento comercial";
-    if (/industrial|warehouse/.test(type)) return "edificaÃƒÂ§ÃƒÂ£o industrial";
-    if (/apartments|residential/.test(type)) return "edifÃƒÂ­cio residencial";
-    return "uma construÃƒÂ§ÃƒÂ£o";
+    if (/industrial|warehouse/.test(type)) return "edificação industrial";
+    if (/apartments|residential/.test(type)) return "edifício residencial";
+    return "uma construção";
   }
 
   showToast(message) {
@@ -537,64 +570,128 @@ export default class WorldScene extends Phaser.Scene {
 
   drawMinimap() {
     if (!this.mapData || !this.minimapGraphics || !this.minimapBg) return;
-    this.minimapGraphics.clear();
 
     const { width } = this.scale;
     const safe = this.getSafeAreaInsets();
     const scale = width < 380 ? 0.72 : width < 520 ? 0.80 : width < 760 ? 0.90 : 1;
-    const mapWidth = 174 * scale;
-    const mapHeight = 136 * scale;
-    const x0 = Math.max(safe.left + 12, width - safe.right - mapWidth - 16);
+    const mapWidth = 224 * scale;
+    const mapHeight = 152 * scale;
+    const visibleWidth = Math.min(width, (window.innerWidth || width) / Math.max(1, window.devicePixelRatio || 1));
+    const x0 = Math.max(safe.left + 12, visibleWidth - safe.right - mapWidth - 16);
     const y0 = safe.top + 16;
-    const centerX = x0 + mapWidth / 2;
-    const centerY = y0 + 65 * scale;
-    const innerX = x0 + 9 * scale;
-    const innerY = y0 + 9 * scale;
-    const innerWidth = 156 * scale;
-    const innerHeight = 112 * scale;
+    const innerX = x0 + 8 * scale;
+    const innerY = y0 + 8 * scale;
+    const innerWidth = 208 * scale;
+    const innerHeight = 116 * scale;
+    const centerX = innerX + innerWidth / 2;
+    const centerY = innerY + innerHeight / 2;
+    const view = this.cameras.main.worldView;
+    const focusX = this.player?.x ?? view.centerX;
+    const focusY = this.player?.y ?? view.centerY;
+    const coverageWidthPx = Math.max(1, view.width * MINIMAP_RANGE_MULTIPLIER);
+    const coverageHeightPx = Math.max(1, view.height * MINIMAP_RANGE_MULTIPLIER);
 
     this.minimapBg.setPosition(x0, y0).setSize(mapWidth, mapHeight);
+    this.minimapGraphics.clear();
     this.minimapGraphics.fillStyle(0x26382e, 0.98);
     this.minimapGraphics.fillRect(innerX, innerY, innerWidth, innerHeight);
 
+    // O mapa acompanha o jogador. Cada eixo cobre 3x o que a câmera mostra.
     const mapPoint = p => ({
-      x: centerX + (p[0] / MAP_RADIUS) * 74 * scale,
-      y: centerY - (p[1] / MAP_RADIUS) * 52 * scale
+      x: centerX + ((p[0] * PPM - focusX) / coverageWidthPx) * innerWidth,
+      y: centerY + ((-p[1] * PPM - focusY) / coverageHeightPx) * innerHeight
     });
-    this.minimapGraphics.lineStyle(Math.max(0.7, scale), 0x7f8b76, 0.75);
+    const clipRect = {
+      left: innerX + 1,
+      top: innerY + 1,
+      right: innerX + innerWidth - 1,
+      bottom: innerY + innerHeight - 1
+    };
+
+    this.minimapGraphics.lineStyle(Math.max(0.9, 1.15 * scale), 0x9aa58d, 0.88);
     for (const road of this.mapData.roads) {
       for (const line of road.lines) {
         if (line.length < 2) continue;
-        const first = mapPoint(line[0]);
-        this.minimapGraphics.beginPath();
-        this.minimapGraphics.moveTo(first.x, first.y);
         for (let i = 1; i < line.length; i++) {
-          const point = mapPoint(line[i]);
-          this.minimapGraphics.lineTo(point.x, point.y);
+          const segment = clipSegmentToRect(
+            mapPoint(line[i - 1]),
+            mapPoint(line[i]),
+            clipRect
+          );
+          if (!segment) continue;
+          this.minimapGraphics.beginPath();
+          this.minimapGraphics.moveTo(segment.a.x, segment.a.y);
+          this.minimapGraphics.lineTo(segment.b.x, segment.b.y);
+          this.minimapGraphics.strokePath();
         }
-        this.minimapGraphics.strokePath();
       }
     }
 
-    this.minimapGraphics.lineStyle(1, 0xb0b68e, 0.5);
-    this.minimapGraphics.strokeRect(innerX, innerY, innerWidth, innerHeight);
-    this.minimapPlayer.setPosition(centerX, centerY).setScale(scale);
-    this.minimapMapPoint = mapPoint;
-    this.minimapTitle?.destroy();
-    this.minimapTitle = this.registerHud(this.add.text(centerX, y0 + 123 * scale, "MINIMAPA", {
-      fontFamily: "Trebuchet MS, sans-serif", fontSize: `${8 * scale}px`,
-      color: "#dbe3c6", letterSpacing: 2 * scale
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1002));
-  }
-
-  updateMinimapPlayer() {
-    if (!this.minimapMapPoint || !this.player) return;
-    const point = this.minimapMapPoint([
-      this.player.x / PPM, -this.player.y / PPM
+    // O retângulo amarelo representa o enquadramento da tela do computador.
+    const cameraCenter = mapPoint([
+      view.centerX / PPM,
+      -view.centerY / PPM
     ]);
-    this.minimapPlayer.setPosition(point.x, point.y);
-  }
+    const screenWidth = innerWidth / MINIMAP_RANGE_MULTIPLIER;
+    const screenHeight = innerHeight / MINIMAP_RANGE_MULTIPLIER;
+    this.minimapGraphics.lineStyle(1.25 * scale, 0xffdf78, 0.95);
+    this.minimapGraphics.strokeRect(
+      cameraCenter.x - screenWidth / 2,
+      cameraCenter.y - screenHeight / 2,
+      screenWidth,
+      screenHeight
+    );
 
+    this.minimapGraphics.lineStyle(1, 0xb0b68e, 0.65);
+    this.minimapGraphics.strokeRect(innerX, innerY, innerWidth, innerHeight);
+    const playerPoint = mapPoint([focusX / PPM, -focusY / PPM]);
+    this.minimapPlayer.setPosition(playerPoint.x, playerPoint.y).setScale(scale);
+
+    this.minimapMapPoint = mapPoint;
+    this.minimapFocus = { x: focusX, y: focusY };
+    this.minimapCoverageMeters = {
+      width: coverageWidthPx / PPM,
+      height: coverageHeightPx / PPM
+    };
+    this.minimapLastRenderAt = this.time.now;
+
+    const titleY = y0 + 130 * scale;
+    if (!this.minimapTitle || !this.minimapTitle.active) {
+      this.minimapTitle = this.registerHud(this.add.text(
+        centerX, titleY, "MINIMAPA · ÁREA 3×",
+        {
+          fontFamily: "Trebuchet MS, sans-serif",
+          fontSize: `${8 * scale}px`,
+          color: "#dbe3c6",
+          letterSpacing: 1.3 * scale
+        }
+      ).setOrigin(0.5, 0).setScrollFactor(0).setDepth(1002));
+    } else {
+      this.minimapTitle
+        .setPosition(centerX, titleY)
+        .setText("MINIMAPA · ÁREA 3×")
+        .setFontSize(`${8 * scale}px`);
+    }
+  }
+  updateMinimapPlayer() {
+    if (!this.player) return;
+    const now = this.time.now;
+    const previous = this.minimapFocus;
+    const moved = !previous || Phaser.Math.Distance.Between(
+      previous.x, previous.y, this.player.x, this.player.y
+    ) >= 8;
+
+    if (!this.minimapMapPoint ||
+        (moved && now - this.minimapLastRenderAt >= MINIMAP_REDRAW_INTERVAL_MS)) {
+      this.drawMinimap();
+    }
+
+    const point = this.minimapMapPoint?.([
+      this.player.x / PPM,
+      -this.player.y / PPM
+    ]);
+    if (point) this.minimapPlayer.setPosition(point.x, point.y);
+  }
   layoutHud() {
     if (!this.minimapBg) return;
     const { width, height } = this.scale;
@@ -606,7 +703,7 @@ export default class WorldScene extends Phaser.Scene {
     this.logoText?.setPosition(left, top);
     this.statusText?.setPosition(left + 2, top + 31);
     const minimapScale = width < 380 ? 0.72 : width < 520 ? 0.80 : width < 760 ? 0.90 : 1;
-    const minimapWidth = 174 * minimapScale;
+    const minimapWidth = 224 * minimapScale;
     const reservedRight = minimapWidth + safe.right + 38;
     const statusWidth = Math.max(120, Math.min(440, width - left - reservedRight));
     this.statusText?.setWordWrapWidth(statusWidth);
