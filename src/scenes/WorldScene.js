@@ -46,7 +46,8 @@ export default class WorldScene extends Phaser.Scene {
     this.toastUntil = 0;
     this.minimapLastRenderAt = 0;
     this.minimapFocus = null;
-    this.v4Preview = new URLSearchParams(window.location.search).get("v4preview") === "1";
+    // Mantém o visual V4 da prévia como padrão; ?v4preview=0 permite voltar ao V2.
+    this.v4Preview = new URLSearchParams(window.location.search).get("v4preview") !== "0";
     this.performanceMetrics = {
       elapsedMs: 0, frames: 0, fps: 0, averageFps: 0,
       minFps: 0, maxFps: 0, frameMs: 0, maxFrameMs: 0,
