@@ -1377,19 +1377,27 @@ export default class WorldChunkManager {
           areaM2 >= 55 && areaM2 <= 650 &&
           shortSide >= 7 * PPM && longSide <= 60 * PPM &&
           aspect <= 2.5;
+        const eligibleLargeCommercial =
+          isCommercial && areaM2 > 650 && areaM2 <= 15000 &&
+          shortSide >= 18 * PPM && longSide <= 180 * PPM &&
+          aspect <= 2.5;
         let roofTexture = null;
 
-        if (eligibleFootprint && center.x >= rect.minX && center.x <= rect.maxX &&
-            center.y >= rect.minY && center.y <= rect.maxY) {
+        if (eligibleFootprint || eligibleLargeCommercial) {
           if (this.scene.v4Preview) {
             if (industrial) roofTexture = "v4-roof-metal";
-            else if (isCommercial) roofTexture = seed % 2 ? "v4-roof-metal" : "v4-surface-concrete";
-            else if (isApartment) roofTexture = seed % 2 ? "v4-surface-pavers" : "v4-surface-concrete";
+            else if (isCommercial) {
+              roofTexture = eligibleLargeCommercial
+                ? "v4-surface-concrete"
+                : seed % 2 ? "v4-roof-metal" : "v4-surface-concrete";
+            } else if (isApartment) roofTexture = seed % 2 ? "v4-surface-pavers" : "v4-surface-concrete";
           } else {
             if (isHouse && seed % 5 !== 0) {
               roofTexture = seed % 2 === 0
                 ? "roof-terracotta-orange-v2"
                 : "roof-terracotta-shadow-v2";
+            } else if (isCommercial && eligibleLargeCommercial) {
+              roofTexture = "roof-corrugated-gray-v2";
             } else if (isCommercial && seed % 3 !== 0) {
               roofTexture = seed % 2 === 0
                 ? "roof-corrugated-gray-v2"
@@ -1428,7 +1436,11 @@ export default class WorldChunkManager {
           g.fillPoints(base.map(p => new Phaser.Geom.Point(p.x, p.y)), true, true);
         }
         if (roof.length >= 3) {
-          if (roofTexture) {
+          const ownsTexturedRoof = roofTexture &&
+            center.x >= rect.minX && center.x < rect.maxX &&
+            center.y >= rect.minY && center.y < rect.maxY;
+
+          if (ownsTexturedRoof) {
             const maskGraphics = this.scene.add.graphics();
             maskGraphics.fillStyle(0xffffff, 1);
             maskGraphics.fillPoints(
@@ -1458,6 +1470,8 @@ export default class WorldChunkManager {
               roofOutlineGraphics, outer.map(p => ({ x: p.x - 1, y: p.y - 1 })), rect
             );
           } else {
+            // Other chunks keep a plain clipped roof base. The owning chunk
+            // draws the single textured roof over the complete footprint.
             g.fillStyle(shade, 1);
             g.fillPoints(roof.map(p => new Phaser.Geom.Point(p.x, p.y)), true, true);
             g.lineStyle(2, 0x342f2b, 0.95);
