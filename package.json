@@ -11,7 +11,10 @@
                     "assets":  "python scripts/generate_assets.py",
                     "test:data":  "python -m unittest discover -s tests -v",
                     "split:map":  "python scripts/split_map_chunks.py \u0026\u0026 python scripts/build_road_index.py",
-                    "test:walls":  "node scripts/test_lot_walls.mjs"
+                    "test:walls":  "node scripts/test_lot_walls.mjs",
+                    "test:freecam":  "node scripts/test_free_camera.mjs",
+                    "test:inspector":  "node scripts/test_world_inspector.mjs",
+                    "test:e2e":  "node scripts/e2e_dev_tools.mjs"
                 },
     "dependencies":  {
                          "phaser":  "3.90.0"
