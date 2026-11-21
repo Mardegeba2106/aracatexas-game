@@ -261,6 +261,10 @@ export default class WorldScene extends Phaser.Scene {
       import("../dev/WorldInspector.js").then(({ WorldInspector }) => {
         this.devInspector = new WorldInspector(this);
       });
+      // Dev Mode: World Editor (F8). Modifica o mundo por uma camada separada dos dados do mapa.
+      import("../dev/WorldEditor.js").then(({ WorldEditor }) => {
+        this.devEditor = new WorldEditor(this);
+      });
       window.__araScene = this; // so em desenvolvimento: facilita testes automatizados
     }
   }
@@ -475,6 +479,7 @@ export default class WorldScene extends Phaser.Scene {
     this.updatePerformance(delta);
     this.devFreeCam?.update(delta);
     this.devInspector?.update(delta);
+    this.devEditor?.update(delta);
     // O streaming continua trabalhando mesmo com o mapa expandido aberto ou sem jogador.
     this.chunkManager?.updateVisible();
     if (this.debugKey && Phaser.Input.Keyboard.JustDown(this.debugKey)) {

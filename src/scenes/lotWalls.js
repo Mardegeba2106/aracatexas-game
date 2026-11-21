@@ -391,11 +391,12 @@ export function planLotWall(ringSrc, ctx) {
 
   const faces = [], tops = [], pillars = [], collisions = [];
   const pillarSeen = new Set();
-  const addPillar = (p, pal) => {
+  // `edge` e `gate` identificam o pilar para o World Editor (campos aditivos).
+  const addPillar = (p, pal, edge = null, isGate = false) => {
     const q = rnd(p), key = `${q.x}:${q.y}`;
     if (pillarSeen.has(key)) return;
     pillarSeen.add(key);
-    pillars.push({ x: q.x, y: q.y, pal });
+    pillars.push({ x: q.x, y: q.y, pal, edge, gate: isGate });
   };
 
   // Divide [t0,t1] da aresta em trechos que n?o passam por cima de via de servi?o.
@@ -427,36 +428,39 @@ export function planLotWall(ringSrc, ctx) {
       ? [[0, gate.t0], [gate.t1, 1]] : [[0, 1]];
     const side = Math.abs(e.n.x);
     const shade = 1 - 0.14 * side;
-    addPillar(ca, pal);
+    addPillar(ca, pal, i);
     if (gate && gate.edge === i) {
-      addPillar(lerp(ca, cb, gate.t0), pal);
-      addPillar(lerp(ca, cb, gate.t1), pal);
+      addPillar(lerp(ca, cb, gate.t0), pal, i, true);
+      addPillar(lerp(ca, cb, gate.t1), pal, i, true);
     }
 
     const carved = [];
     for (const [q0, q1] of pieces) {
       for (const [r0, r1] of carvePiece(ca, cb, q0, q1)) {
         carved.push([r0, r1]);
-        if (r0 > q0 + 1e-6) addPillar(lerp(ca, cb, r0), pal);
-        if (r1 < q1 - 1e-6) addPillar(lerp(ca, cb, r1), pal);
+        if (r0 > q0 + 1e-6) addPillar(lerp(ca, cb, r0), pal, i);
+        if (r1 < q1 - 1e-6) addPillar(lerp(ca, cb, r1), pal, i);
       }
     }
 
+    let pieceNo = 0;
     for (const [t0, t1] of carved) {
       if (dist(ca, cb) * (t1 - t0) < 1.5) continue;
-      collisions.push({ a: rnd(lerp(ca, cb, t0)), b: rnd(lerp(ca, cb, t1)) });
+      // `piece` ("aresta.trecho") é o ID estável do trecho de muro para o World Editor.
+      const piece = `${i}.${pieceNo++}`;
+      collisions.push({ a: rnd(lerp(ca, cb, t0)), b: rnd(lerp(ca, cb, t1)), piece });
 
       const O0 = rnd(lerp(oa, ob, t0)), O1 = rnd(lerp(oa, ob, t1));
       const I0 = rnd(lerp(ia, ib, t0)), I1 = rnd(lerp(ia, ib, t1));
-      tops.push({ pts: [up(O0), up(O1), up(I1), up(I0)], pal, sortY: (O0.y + O1.y) / 2 });
+      tops.push({ pts: [up(O0), up(O1), up(I1), up(I0)], pal, sortY: (O0.y + O1.y) / 2, piece });
 
       // Face externa: aparece quando a normal externa aponta para o sul da tela.
       if (e.n.y < -0.1) {
-        faces.push({ role: "outer", p0: O0, p1: O1, pal, shade, sortY: (O0.y + O1.y) / 2 });
+        faces.push({ role: "outer", p0: O0, p1: O1, pal, shade, sortY: (O0.y + O1.y) / 2, piece });
       }
       // Face interna: aparece quando a normal interna aponta para o sul da tela.
       if (e.n.y > 0.1) {
-        faces.push({ role: "inner", p0: I0, p1: I1, pal, shade: shade * 0.92, sortY: (I0.y + I1.y) / 2 });
+        faces.push({ role: "inner", p0: I0, p1: I1, pal, shade: shade * 0.92, sortY: (I0.y + I1.y) / 2, piece });
       }
     }
   }
@@ -476,6 +480,10 @@ export function planLotWall(ringSrc, ctx) {
     insets: inset.slice(),
     frontIdx,
     gate,
+    gateSegment: gate ? {
+      a: rnd(lerp(center[gate.edge], center[(gate.edge + 1) % n], gate.t0)),
+      b: rnd(lerp(center[gate.edge], center[(gate.edge + 1) % n], gate.t1))
+    } : null,
     faces, tops, pillars, collisions
   };
 }

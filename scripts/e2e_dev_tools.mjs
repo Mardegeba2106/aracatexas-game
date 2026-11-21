@@ -83,7 +83,10 @@ try {
   for (let i = 0; i < 90 && !ready; i++) {
     await sleep(500);
     ready = await evalJs(`(() => { const s = window.__araScene; if (!s?.devInspector || !s?.devFreeCam) return false;
-      let n = 0; for (const c of s.chunkManager.loaded.values()) if (c.record) n++; return n >= 4; })()`) === true;
+      const chunks = [...s.chunkManager.loaded.values()];
+      const loaded = chunks.filter(c => c.state === "loaded").length;
+      const collisions = (s.buildingCollision?.length || 0) + (s.wallCollision?.length || 0) + (s.treeCollision?.length || 0);
+      return loaded >= 4 && collisions > 0; })()`) === true;
   }
   note(ready, "jogo carregou com World Inspector e camera livre prontos e chunks com dados");
   if (!ready) throw new Error("jogo nao ficou pronto: " + JSON.stringify(await evalJs("document.body.innerText.slice(0,200)")));

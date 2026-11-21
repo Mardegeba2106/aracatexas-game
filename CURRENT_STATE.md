@@ -62,3 +62,11 @@ Os testes E2E usam Chrome headless e não substituem a validação visual em GPU
 4. Só depois avançar para as primeiras interações de gameplay.
 
 Não começar vários sistemas grandes em paralelo. Manter entregas pequenas, testáveis e jogáveis.
+
+## World Editor integrado
+
+- F8 abre o editor; F7 mantém o Inspector. Seleção, ocultar/remover/restaurar, colisão e histórico Ctrl+Z/Ctrl+Y fazem parte do modo Edição.
+- As edições são salvas em armazenamento local e podem ser exportadas/importadas em JSON.
+- O estado do mapa original não é sobrescrito. Construção/posicionamento continuam reservados para etapa futura.
+- Testes: npm run test:editor; com Vite ativo, npm run test:editor:ui.
+- O teste de navegador do World Editor também valida uma edição real de construção: remover, sincronizar colisão, persistir, desfazer, refazer e restaurar.

@@ -3,6 +3,7 @@
 // record.buildings, collisions...). Nada aqui altera dados do mapa e nada força
 // o carregamento de chunks.
 import { pointInPolygon } from "../utils/geometry.js";
+import { ids as modIds } from "../scenes/worldMods.js";
 
 export const PPM = 16; // pixels por metro (a mesma escala do jogo)
 
@@ -138,6 +139,9 @@ function pickPolygon(manager, p, type) {
     if (!inBounds(item.bounds, p)) continue;
     for (let i = 0; i < item.polygons.length; i++) {
       if (pointInPolygon(p, item.polygons[i])) {
+        // World Editor: construção ocultada/removida não é mais "visível" para a consulta.
+        if (type === "buildings" && manager.isElementRendered &&
+            !manager.isElementRendered(modIds.building(item.feature.id, i))) continue;
         return { kind: type === "lots" ? "lot" : "building", item, polygonIndex: i, chunkKey: hit.chunk.key };
       }
     }
@@ -155,6 +159,9 @@ export function pickWall(manager, p, tolerance = 7) {
     if (!plan || !inBounds(plan.bbox, p, tolerance + 28)) continue;
     for (const seg of plan.collisions) {
       const d = segDist(p, seg.a, seg.b);
+      // World Editor: trecho ocultado/removido não é selecionável aqui.
+      if (seg.piece !== undefined && manager.isElementRendered &&
+          !manager.isElementRendered(modIds.wallPiece(key, seg.piece))) continue;
       if (d <= tolerance && (!best || d < best.distance)) {
         best = { kind: "wall", lotKey: key, plan, segment: seg, distance: d };
       }

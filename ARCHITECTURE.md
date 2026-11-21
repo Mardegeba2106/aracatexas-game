@@ -102,3 +102,11 @@ O protótipo ainda não deve ser tratado como implementação completa de:
 - combate e polícia completos.
 
 Esses itens pertencem à visão futura. Antes de implementar, planeje uma fatia pequena e jogável e confirme que ela se encaixa na arquitetura existente.
+
+## World Editor
+
+- WorldEditor (F8) mantém alterações não destrutivas numa camada separada em worldMods.js; os dados preparados do mapa permanecem intactos.
+- WorldChunkManager reaplica edições a chunks carregados e aos chunks criados posteriormente; chunks em montagem são invalidados e reiniciados com o estado atualizado.
+- WorldInspector (F7) continua sendo somente leitura. Os dois painéis podem ficar abertos ao mesmo tempo.
+- As alterações locais e os arquivos JSON exportados são vinculados à chave de cache dos chunks. Importar uma edição de outro mapa é recusado.
+- O Modo Construção permanece reservado; a colocação/renderização de novos objetos não faz parte desta integração.

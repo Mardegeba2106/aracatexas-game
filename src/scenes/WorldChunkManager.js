@@ -3,6 +3,7 @@ import { toWorld, polygonBounds, polygonCentroid, getFeaturePolygons } from "../
 import { WALL_CFG, buildRoadSegments, planLotWall, mixColor } from "./lotWalls.js";
 import ChunkStreamingManager from "./ChunkStreamingManager.js";
 import WorldLODManager from "./WorldLODManager.js";
+import { ids as modIds, applyWallMods } from "./worldMods.js";
 
 const PPM = 16;
 const CHUNK_SIZE = 512;
@@ -312,6 +313,98 @@ export default class WorldChunkManager {
     this.lotWallGeometryCache = new Map();
     this.lotWallPlans = new Map();
     this.wallRoadSegments = buildRoadSegments(mapData.roadIndex || []);
+    // World Editor: camada de modificações independente (null = sem edições).
+    // Os dados originais do mapa nunca são alterados; ela só filtra o desenho e a colisão.
+    this.worldMods = null;
+    // Em desenvolvimento guardamos o JSON bruto do chunk para reconstruí-lo ao editar.
+    this.retainRaw = Boolean(import.meta.env?.DEV);
+  }
+
+  // ---- World Editor ---------------------------------------------------------
+  modRendered(id) { return !this.worldMods || this.worldMods.isRendered(id); }
+  modCollides(id, fallback = true) {
+    return this.worldMods ? this.worldMods.collisionEnabled(id, fallback) : fallback;
+  }
+  // Usados por ferramentas de consulta (World Inspector) para não tratar como visível
+  // o que o editor ocultou/removeu.
+  isElementRendered(id) { return this.modRendered(id); }
+
+  setWorldMods(store, { rebuild = true } = {}) {
+    this.worldMods = store || null;
+    if (rebuild) this.rebuildChunks(null);
+  }
+
+  // Remove apenas os objetos visuais deste chunk, preservando o terreno.
+  // Também é usado para reiniciar com segurança uma montagem interrompida.
+  clearChunkRenderObjects(chunk) {
+    const [ground, ...rest] = chunk.objects || [];
+    for (const object of rest) object?.destroy?.();
+    chunk.objects = ground ? [ground] : [];
+    const terrain = chunk.lodLayers?.terrain;
+    chunk.lodLayers = terrain ? { terrain } : {};
+    chunk.record = null;
+    chunk.buildingsRendered = false;
+  }
+
+  // Reinicia a montagem com o JSON original e a versão ATUAL das modificações.
+  // O chunk continua no streaming normal, sem uma reconstrução síncrona pesada.
+  restartChunkBuild(chunk) {
+    const raw = chunk.buildRaw || chunk.raw;
+    if (!raw) return false;
+    this.clearChunkRenderObjects(chunk);
+    chunk.buildRaw = raw;
+    if (this.retainRaw) chunk.raw = raw;
+    chunk.buildRect = this.makeRect(chunk.cx, chunk.cy);
+    chunk.buildStage = 0;
+    chunk.editorDirty = false;
+    chunk.editorBuildRevision = this.worldMods?.revision ?? 0;
+    return true;
+  }
+
+  // Reconstrói visual + colisão de UM chunk carregado, a partir do JSON original.
+  // Não recarrega nada da rede.
+  rebuildChunk(chunk) {
+    if (!chunk || chunk.state !== "loaded" || !chunk.raw) return false;
+    this.clearChunkRenderObjects(chunk);
+    const rect = this.makeRect(chunk.cx, chunk.cy);
+    const record = this.normalizeRecord(chunk.raw);
+    chunk.record = record;
+    this.drawBlocks(chunk, record, rect);
+    this.drawLots(chunk, record, rect);
+    this.drawRoads(chunk, record, rect);
+    this.drawLotWalls(chunk, record, rect);
+    this.drawLabels(chunk, record);
+    this.drawBuildings(chunk, record, rect);
+    this.drawTrees(chunk, record);
+    this.lodManager.applyChunk(chunk);
+    return true;
+  }
+
+  // boundsList: [{minX,minY,maxX,maxY}] em px do mundo; null = todos os chunks carregados.
+  // Retorna as chaves reconstruídas.
+  rebuildChunks(boundsList, padding = 64) {
+    const rebuilt = [];
+    let invalidatedBuilding = false;
+    for (const chunk of this.loaded.values()) {
+      if (boundsList) {
+        const r = chunk.rect;
+        const hit = boundsList.some(b => b && b.minX <= r.maxX + padding && b.maxX >= r.minX - padding &&
+          b.minY <= r.maxY + padding && b.maxY >= r.minY - padding);
+        if (!hit) continue;
+      }
+      if (chunk.state === "building") {
+        // Não destrua objetos enquanto uma etapa está sendo executada. A flag faz
+        // o processador reiniciar esse chunk antes da próxima etapa.
+        chunk.editorDirty = true;
+        invalidatedBuilding = true;
+        continue;
+      }
+      if (chunk.state !== "loaded") continue;
+      if (this.rebuildChunk(chunk)) rebuilt.push(chunk.key);
+    }
+    // Não deixe colisões de um chunk parcialmente construído sobreviverem à edição.
+    if (rebuilt.length || invalidatedBuilding) this.syncCollisionArrays();
+    return rebuilt;
   }
 
   get loadingCount() {
@@ -350,7 +443,8 @@ export default class WorldChunkManager {
   normalizeRecord(raw) {
     const record = {
       blocks: [], lots: [], roads: [], buildings: [],
-      trees: [], labels: [], collisions: [], roadItems: []
+      trees: [], labels: [], collisions: [], roadItems: [],
+      editorHidden: [] // elementos ocultos/removidos pelo World Editor (para listar/restaurar)
     };
 
     for (const type of ["blocks", "lots", "buildings"]) {
@@ -363,6 +457,7 @@ export default class WorldChunkManager {
         if (type === "buildings" && this.showBuildings) {
           polygons.forEach((polygon, index) => {
             if (polygon[0]?.length < 3) return;
+            if (!this.modCollides(modIds.building(feature.id, index), true)) return;
             record.collisions.push(makeCollision(item, polygon, index));
           });
         }
@@ -386,13 +481,17 @@ export default class WorldChunkManager {
       const point = toWorld(tree.point, PPM);
       const seed = hash(tree.id);
       const radius = 10 + (seed % 5);
-      record.trees.push({ feature: tree, point, radius, seed });
-      record.collisions.push({
-        key: `tree:${tree.id}`,
-        x: point.x,
-        y: point.y + 3,
-        radius: 11
-      });
+      const treeId = modIds.tree(tree.id);
+      if (this.modRendered(treeId)) record.trees.push({ feature: tree, point, radius, seed });
+      else record.editorHidden.push({ id: treeId, kind: "tree", point, radius });
+      if (this.modCollides(treeId, true)) {
+        record.collisions.push({
+          key: `tree:${tree.id}`,
+          x: point.x,
+          y: point.y + 3,
+          radius: 11
+        });
+      }
     }
 
     record.labels = raw.labels || [];
@@ -404,6 +503,7 @@ export default class WorldChunkManager {
     const walls = new Map();
     const trees = new Map();
     for (const chunk of this.loaded.values()) {
+      if (chunk.state !== "loaded") continue;
       for (const collision of chunk.record?.collisions || []) {
         if (collision.rings) buildings.set(collision.key, collision);
         else if (collision.segments) walls.set(collision.key, collision);
@@ -472,6 +572,8 @@ export default class WorldChunkManager {
       chunk.state = "building";
       chunk.buildRaw = raw;
       chunk.buildStage = 0;
+      chunk.editorDirty = false;
+      chunk.editorBuildRevision = this.worldMods?.revision ?? 0;
       this.buildQueue.push(chunk);
     }
 
@@ -479,7 +581,7 @@ export default class WorldChunkManager {
     let steps = 0;
     let collisionDataChanged = false;
     const stages = [
-      chunk => { chunk.record = this.normalizeRecord(chunk.buildRaw); chunk.buildRect = this.makeRect(chunk.cx, chunk.cy); },
+      chunk => { if (this.retainRaw) chunk.raw = chunk.buildRaw; chunk.record = this.normalizeRecord(chunk.buildRaw); chunk.buildRect = this.makeRect(chunk.cx, chunk.cy); },
       chunk => this.drawBlocks(chunk, chunk.record, chunk.buildRect),
       chunk => this.drawLots(chunk, chunk.record, chunk.buildRect),
       chunk => this.drawRoads(chunk, chunk.record, chunk.buildRect),
@@ -498,6 +600,9 @@ export default class WorldChunkManager {
       const chunk = this.buildQueue.shift();
       if (this.loaded.get(chunk.key) !== chunk || chunk.state !== "building") continue;
       try {
+        if (chunk.editorDirty && !this.restartChunkBuild(chunk)) {
+          throw new Error("Não foi possível reiniciar o chunk após uma edição do mundo.");
+        }
         stages[chunk.buildStage](chunk);
         chunk.buildStage++;
         steps++;
@@ -506,6 +611,8 @@ export default class WorldChunkManager {
           delete chunk.buildRaw;
           delete chunk.buildRect;
           delete chunk.buildStage;
+          delete chunk.editorDirty;
+          delete chunk.editorBuildRevision;
           this.lodManager.applyChunk(chunk);
           collisionDataChanged = true;
         } else {
@@ -555,6 +662,7 @@ export default class WorldChunkManager {
     for (const object of chunk.objects) object.destroy();
     chunk.objects.length = 0;
     chunk.record = null;
+    chunk.raw = null;
     chunk.collisions = null;
     chunk.state = "unloaded";
     this.loaded.delete(chunk.key);
@@ -735,7 +843,7 @@ export default class WorldChunkManager {
     for (let cy = minCy; cy <= maxCy; cy++) {
       for (let cx = minCx; cx <= maxCx; cx++) {
         const chunk = this.loaded.get(this.key(cx, cy));
-        if (!chunk?.record) continue;
+        if (chunk?.state !== "loaded" || !chunk.record) continue;
         for (const item of chunk.record.collisions) {
           if (!found.has(item.key)) found.set(item.key, item);
         }
@@ -1274,14 +1382,21 @@ export default class WorldChunkManager {
         // Assim o topo, que sobe na tela, nunca é cortado na divisa de chunks.
         if (Math.floor(plan.anchor.x / this.chunkSize) !== chunk.cx ||
             Math.floor(plan.anchor.y / this.chunkSize) !== chunk.cy) continue;
-        faces.push(...plan.faces);
-        tops.push(...plan.tops);
-        pillars.push(...plan.pillars);
-        segments.push(...plan.collisions);
+        // World Editor: cada trecho/pilar/portão é filtrado individualmente; vizinhos não mudam.
+        const lotKey = `${item.feature?.id ?? "lote"}:${polygonIndex}`;
+        const view = applyWallMods(plan, lotKey, this.worldMods);
+        faces.push(...view.faces);
+        tops.push(...view.tops);
+        pillars.push(...view.pillars);
+        segments.push(...view.collisions);
         debug.push(plan.rings);
+        for (const piece of view.hiddenPieces) {
+          const seg = plan.collisions.find(c => c.piece === piece);
+          record.editorHidden.push({ id: modIds.wallPiece(lotKey, piece), kind: "wall", segment: seg });
+        }
       }
     }
-    if (!faces.length && !tops.length && !pillars.length) return;
+    if (!faces.length && !tops.length && !pillars.length && !segments.length) return;
 
     if (segments.length) {
       const points = segments.flatMap(segment => [segment.a, segment.b]);
@@ -1563,9 +1678,21 @@ export default class WorldChunkManager {
         industrial ? palette.industrial : palette.roof;
       const shade = colors[hash(item.feature.id) % colors.length];
 
-      for (const polygon of item.polygons) {
+      for (let polygonIndex = 0; polygonIndex < item.polygons.length; polygonIndex++) {
+        const polygon = item.polygons[polygonIndex];
         const outer = polygon[0];
         if (!outer || outer.length < 3) continue;
+        // World Editor: estrutura e telhado são partes independentes do mesmo elemento.
+        const buildingId = modIds.building(item.feature.id, polygonIndex);
+        const showStruct = this.modRendered(modIds.part(buildingId, "structure"));
+        const showRoof = this.modRendered(modIds.part(buildingId, "roof"));
+        if (!showStruct || !showRoof) {
+          record.editorHidden.push({
+            id: buildingId, kind: "building", ring: outer,
+            parts: [...(showStruct ? [] : ["structure"]), ...(showRoof ? [] : ["roof"])]
+          });
+        }
+        if (!showStruct && !showRoof) continue;
         const b = polygonBounds(outer);
         const center = polygonCentroid(outer);
         const seed = hash(item.feature.id);
@@ -1578,20 +1705,22 @@ export default class WorldChunkManager {
           // Retain a cheap footprint so LOD 3 can hide the complete property sprite
           // without making the building disappear from the distant city view.
           const footprint = clipRing(outer, rect);
-          if (footprint.length >= 3) {
+          if (showStruct && footprint.length >= 3) {
             g.fillStyle(shade, 1);
             g.fillPoints(footprint.map(point => new Phaser.Geom.Point(point.x, point.y)), true, true);
             g.lineStyle(1.5, 0x342f2b, 0.82);
             this.drawClippedRing(g, outer, rect);
           }
           if (this.scene.v4Preview) {
-            this.drawV4PreviewRoof(chunk, outer, center, rect, seed, "house");
+            if (showRoof) this.drawV4PreviewRoof(chunk, outer, center, rect, seed, "house");
             continue;
           }
-          const handled = this.drawResidentialProperty(
+          // A composição residencial V2 é um sprite único (estrutura + telhado): sai com
+          // a parte "structure". Sem ela, o telhado simples (fallback) ainda pode aparecer.
+          const handled = showStruct && this.drawResidentialProperty(
             chunk, center, record, rect, seed
           );
-          if (!handled) {
+          if (!handled && showRoof) {
             this.drawTexturedHouseFallback(
               chunk, outer, center, b, rect, seed
             );
@@ -1664,15 +1793,15 @@ export default class WorldChunkManager {
         const base = clipRing(outer.map(p => ({ x: p.x + 1, y: p.y + 2 })), rect);
         const roof = clipRing(outer, rect);
 
-        if (shadow.length >= 3) {
+        if (showStruct && shadow.length >= 3) {
           g.fillStyle(0x18231c, 0.38);
           g.fillPoints(shadow.map(p => new Phaser.Geom.Point(p.x, p.y)), true, true);
         }
-        if (base.length >= 3) {
+        if (showStruct && base.length >= 3) {
           g.fillStyle(0x4c5148, 1);
           g.fillPoints(base.map(p => new Phaser.Geom.Point(p.x, p.y)), true, true);
         }
-        if (roof.length >= 3) {
+        if (showRoof && roof.length >= 3) {
           const ownsTexturedRoof = roofTexture &&
             center.x >= rect.minX && center.x < rect.maxX &&
             center.y >= rect.minY && center.y < rect.maxY;
@@ -1718,7 +1847,7 @@ export default class WorldChunkManager {
           }
         }
 
-        if (!roofTexture) {
+        if (showRoof && !roofTexture) {
           const spacing = Math.max(9, Math.min(18, Math.floor((b.maxY - b.minY) / 3)));
           const firstY = Math.max(b.minY + spacing, rect.minY);
           const lastY = Math.min(b.maxY - 2, rect.maxY);
@@ -1756,7 +1885,7 @@ export default class WorldChunkManager {
   }
 
   drawTrees(chunk, record) {
-    if (!record.trees.length) return;
+    if (!record.trees.length) return; // record.trees já exclui as árvores ocultas/removidas
     const g = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(45), "foliage");
     for (const item of record.trees) {
       const p = item.point;
