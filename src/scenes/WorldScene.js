@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import { loadPreparedMap } from "../data/mapLoader.js";
+import defaultWorldMods from "../data/world-mods.default.json";
+import { ModStore, mapVersionKey } from "./worldMods.js";
 import WorldChunkManager from "./WorldChunkManager.js";
 import {
   toWorld, pointInPolygon
@@ -231,6 +233,16 @@ export default class WorldScene extends Phaser.Scene {
     const worldPx = WORLD_EXTENT * 2 * PPM;
     this.chunkManager = new WorldChunkManager(this, this.mapData, WORLD_EXTENT);
 
+    // Aplica a configuração oficial do mundo em qualquer build, não só no Dev Mode.
+    // O arquivo é vinculado à identidade do mapa para evitar IDs sobre um mapa diferente.
+    const compatibleDefaultMods = defaultWorldMods.mapVersion === mapVersionKey(this.mapData)
+      ? defaultWorldMods
+      : null;
+    this.worldMods = new ModStore(compatibleDefaultMods);
+    this.chunkManager.setWorldMods(this.worldMods, { rebuild: false });
+    if (!compatibleDefaultMods) {
+      console.warn("[Aracatexas] Configuração padrão de modificações ignorada: a versão do mapa mudou.");
+    }
 
     this.buildingCollision = this.chunkManager.buildingCollision;
     this.wallCollision = this.chunkManager.wallCollision;

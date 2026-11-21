@@ -1,6 +1,6 @@
 # Araçatexas — estado atual
 
-**Última atualização:** 20/11/2026
+**Última atualização:** 21/11/2026
 **Raiz oficial:** C:\Users\guilh\Desktop\python\aracatexas-game
 **Branch de publicação:** main
 
@@ -33,13 +33,13 @@ A prévia visual residencial V4 é experimental e pode ser ativada com ?v4previe
 - Painel de desempenho (F3).
 - Preview V4 pela query string ?v4preview=1.
 
-## 3. Validação executada em 20/11/2026
+## 3. Validação executada em 21/11/2026
 
-- npm.cmd run build: concluído com sucesso. O Vite emitiu apenas o aviso de bundle JavaScript acima de 500 kB.
-- npm.cmd run test:walls: 1.341 lotes lidos, 1.156 planos de muro, zero violações geométricas.
-- npm.cmd run test:freecam: todos os testes passaram.
-- npm.cmd run test:inspector: todos os testes passaram.
-- npm.cmd run test:e2e: todos os checks passaram; inclui a confirmação de que grade e limites desaparecem ao fechar F7. Nenhum erro de console/exceção foi observado.
+- `npm.cmd run build`: concluído com sucesso. O Vite emitiu apenas o aviso já conhecido de bundle Phaser acima de 500 kB.
+- `npm.cmd run test:editor`: passou, incluindo baseline com 70 construções removidas, migração de `localStorage` antigo e persistência de restauração individual.
+- `npm.cmd run test:editor:ui`: passou; confirmou 70 modificações carregadas, edição real, colisão, persistência, desfazer/refazer/restaurar e coexistência F7/F8.
+- `npm.cmd run test:streaming`, `test:walls`, `test:freecam`, `test:inspector` e `test:data`: todos passaram. Muros: 1.341 lotes lidos, 1.156 planos, zero violações geométricas.
+- `node scripts/e2e_dev_tools.mjs` com preview local: todos os checks passaram, inclusive F6/F7, colisões, LOD e streaming; nenhum erro de console/exceção foi observado.
 
 Os testes E2E usam Chrome headless e não substituem a validação visual em GPU/navegador normal.
 
@@ -68,5 +68,8 @@ Não começar vários sistemas grandes em paralelo. Manter entregas pequenas, te
 - F8 abre o editor; F7 mantém o Inspector. Seleção, ocultar/remover/restaurar, colisão e histórico Ctrl+Z/Ctrl+Y fazem parte do modo Edição.
 - As edições são salvas em armazenamento local e podem ser exportadas/importadas em JSON.
 - O estado do mapa original não é sobrescrito. Construção/posicionamento continuam reservados para etapa futura.
-- Testes: npm run test:editor; com Vite ativo, npm run test:editor:ui.
+- `src/data/world-mods.default.json` é o baseline oficial versionado: as 70 construções do JSON exportado em 21/11/2026 iniciam como removidas.
+- `WorldScene` carrega o baseline antes de criar os chunks, inclusive no build de produção. A configuração só é aplicada quando a identidade do mapa coincide exatamente.
+- O World Editor compartilha a camada da cena. Storages antigos recebem o baseline uma vez sem perder edições locais; restaurações individuais continuam persistentes.
+- Testes: `npm.cmd run test:editor`; com Vite ativo, `npm.cmd run test:editor:ui`.
 - O teste de navegador do World Editor também valida uma edição real de construção: remover, sincronizar colisão, persistir, desfazer, refazer e restaurar.

@@ -63,8 +63,9 @@ try {
     if (ready) break;
   }
   if (!ready) throw new Error("World Editor não carregou.");
-  const initial = await evaluate("({editorOpen:window.__araScene.devEditor.open,panelOpen:document.querySelector('.wed').classList.contains('open'),inspectorReady:Boolean(window.__araScene.devInspector)})");
+  const initial = await evaluate("({editorOpen:window.__araScene.devEditor.open,panelOpen:document.querySelector('.wed').classList.contains('open'),inspectorReady:Boolean(window.__araScene.devInspector),baselineCount:window.__araScene.devEditor.store.size})");
   if (initial.editorOpen || initial.panelOpen) throw new Error("Editor deveria iniciar fechado.");
+  if (initial.baselineCount !== 70) throw new Error("Baseline oficial não foi carregado: " + initial.baselineCount + " modificações.");
 
   const key = async type => send("Input.dispatchKeyEvent", {
     type, code: "F8", key: "F8", windowsVirtualKeyCode: 119, nativeVirtualKeyCode: 119
@@ -79,7 +80,7 @@ try {
     "if (!m.showBuildings) return {error:'teste precisa de buildings=1'}; " +
     "let selected=null; " +
     "const center=ring=>{let area2=0,cx=0,cy=0; for(let i=0;i<ring.length-1;i++){const a=ring[i],b=ring[i+1],cross=a.x*b.y-b.x*a.y; area2+=cross;cx+=(a.x+b.x)*cross;cy+=(a.y+b.y)*cross;} return Math.abs(area2)>1e-6?{x:cx/(3*area2),y:cy/(3*area2)}:{x:ring.reduce((v,p)=>v+p.x,0)/ring.length,y:ring.reduce((v,p)=>v+p.y,0)/ring.length};}; " +
-    "for(const c of m.loaded.values()){if(c.state!=='loaded')continue;for(const b of c.record?.buildings||[]){for(const poly of b.polygons||[]){const ring=poly[0];if(!ring||ring.length<4)continue;const p=center(ring);const hit=e.selectAt(p);if(hit?.kind==='building'){selected=hit;break;}}if(selected)break;}if(selected)break;} " +
+    "for(const c of m.loaded.values()){if(c.state!=='loaded')continue;for(const b of c.record?.buildings||[]){for(const poly of b.polygons||[]){const ring=poly[0];if(!ring||ring.length<4)continue;const p=center(ring);const hit=e.selectAt(p);if(hit?.kind==='building'&&!e.store.effective(hit.id).removed&&!e.store.effective(hit.id).hidden){selected=hit;break;}}if(selected)break;}if(selected)break;} " +
     "if(!selected)return {error:'nenhuma construção selecionável nos chunks carregados',loaded:m.loaded.size}; " +
     "const id=selected.id,ci=Number(id.slice(id.lastIndexOf(':')+1)),collisionKey=String(selected.feature.id)+':'+ci; " +
     "const collisionBefore=s.buildingCollision.some(c=>c.key===collisionKey); " +

@@ -165,12 +165,16 @@ export class ModStore {
   toJSON(meta = {}) {
     const mods = {};
     for (const [id, e] of [...this.mods.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) mods[id] = { ...e };
-    return {
+    const payload = {
       format: MODS_FORMAT, version: MODS_VERSION,
       mapVersion: meta.mapVersion ?? null,
       savedAt: meta.savedAt ?? new Date().toISOString(),
       mods, added: this.added.map(a => ({ ...a }))
     };
+    if (Number.isInteger(meta.defaultsVersion) && meta.defaultsVersion >= 1) {
+      payload.defaultsVersion = meta.defaultsVersion;
+    }
+    return payload;
   }
 
   // Substitui o conteúdo (importar/restaurar). Lança Error com mensagem em PT se inválido.
@@ -224,24 +228,32 @@ export function parseMods(payload, { expectedMapVersion = null } = {}) {
     );
   }
   const added = Array.isArray(data.added) ? data.added.filter(a => a && typeof a === "object") : [];
-  return { mods, added, mapVersion };
+  return {
+    mods, added, mapVersion,
+    defaultsVersion: Number.isInteger(data.defaultsVersion) && data.defaultsVersion >= 1
+      ? data.defaultsVersion
+      : null
+  };
 }
 
 // ----------------------------------------------------------- persistência local
 export class ModPersistence {
   // storage: qualquer objeto com getItem/setItem/removeItem (localStorage ou fake nos testes).
-  constructor(store, storage, { key = STORAGE_KEY, meta = () => ({}) } = {}) {
+  constructor(store, storage, { key = STORAGE_KEY, meta = () => ({}), baselineVersion = null } = {}) {
     this.store = store;
     this.storage = storage;
     this.key = key;
     this.meta = meta;
+    this.baselineVersion = baselineVersion;
     this.lastError = null;
     this.unsubscribe = store.onChange(() => this.save());
   }
 
   save() {
     try {
-      this.storage.setItem(this.key, JSON.stringify(this.store.toJSON(this.meta())));
+      const meta = { ...this.meta() };
+      if (this.baselineVersion != null) meta.defaultsVersion = this.baselineVersion;
+      this.storage.setItem(this.key, JSON.stringify(this.store.toJSON(meta)));
       this.lastError = null;
       return true;
     } catch (error) {
@@ -257,7 +269,11 @@ export class ModPersistence {
       if (!raw) return { loaded: false, count: 0 };
       const expectedMapVersion = this.meta()?.mapVersion ?? null;
       const parsed = parseMods(raw, { expectedMapVersion });
-      this.store.load(raw, { silent: true, expectedMapVersion });
+      // Armazenamentos antigos não conhecem o baseline do projeto. Mescla-os uma vez
+      // sobre a configuração oficial e grava o marcador para as próximas inicializações.
+      const migrateBaseline = this.baselineVersion != null && parsed.defaultsVersion !== this.baselineVersion;
+      this.store.load(raw, { silent: true, expectedMapVersion, merge: migrateBaseline });
+      if (migrateBaseline) this.save();
       return {
         loaded: true,
         count: this.store.size,

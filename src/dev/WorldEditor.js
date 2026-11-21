@@ -8,6 +8,7 @@
 // exportável/importável por JSON. O WorldChunkManager consulta essa camada ao desenhar e
 // ao montar colisões, então tudo sobrevive a descarregar/recarregar chunks e à página.
 import { ModStore, ModPersistence, ids, parentOf, STORAGE_KEY, parseMods, mapVersionKey } from "../scenes/worldMods.js";
+import defaultWorldMods from "../data/world-mods.default.json";
 import { screenToWorld } from "./inspectorCore.js";
 import {
   EditorSession, pickCandidates, locateElement, lotAssociations, describeElement
@@ -15,6 +16,7 @@ import {
 import { ModeRegistry } from "./worldEditorModes.js";
 import { WorldEditorPanel } from "./worldEditorPanel.js";
 
+const DEFAULT_WORLD_MODS_VERSION = 1;
 const COLOR = { selected: 0xffdf78, hover: 0x00e5ff, hidden: 0xff9f43, removed: 0xff4d4d, noCollision: 0xb28cff, ghost: 0x9aa6a0 };
 
 const view = cam => ({
@@ -39,10 +41,16 @@ export class WorldEditor {
     this.hover = null;
     this._sig = ""; this._sinceHover = 0;
 
-    this.store = options.store || new ModStore();
+    const hasCustomStore = Boolean(options.store);
+    const defaultModsCompatible = defaultWorldMods.mapVersion === this.mapVersion();
+    this.store = options.store || scene.worldMods || new ModStore(defaultModsCompatible ? defaultWorldMods : null);
     const storage = options.storage === undefined ? defaultStorage() : options.storage;
     this.persistence = storage
-      ? new ModPersistence(this.store, storage, { key: options.storageKey || STORAGE_KEY, meta: () => ({ mapVersion: this.mapVersion() }) })
+      ? new ModPersistence(this.store, storage, {
+          key: options.storageKey || STORAGE_KEY,
+          meta: () => ({ mapVersion: this.mapVersion() }),
+          baselineVersion: hasCustomStore || !defaultModsCompatible ? null : DEFAULT_WORLD_MODS_VERSION
+        })
       : null;
     // Carrega o que foi salvo ANTES de ligar à cena: chunks montados depois já nascem editados.
     const loaded = this.persistence?.load();

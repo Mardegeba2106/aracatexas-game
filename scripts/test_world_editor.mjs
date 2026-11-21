@@ -40,6 +40,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const data = p => JSON.parse(fs.readFileSync(path.join(root, "public", "data", p), "utf8"));
 const manifest = data("world-manifest.json");
 const roadIndex = data("roads-index.json");
+const defaultWorldMods = JSON.parse(fs.readFileSync(path.join(root, "src", "data", "world-mods.default.json"), "utf8"));
+const currentMapVersion = mapVersionKey({ chunkManifest: manifest });
+ok(defaultWorldMods.mapVersion === currentMapVersion, "baseline oficial pertence exatamente à versão atual do mapa");
+ok(Object.keys(defaultWorldMods.mods).length === 70 && Object.values(defaultWorldMods.mods).every(entry => entry.removed === true),
+  "baseline oficial contém as 70 construções exportadas marcadas como removidas");
 
 // ---- cena falsa: objetos que só registram o que foi desenhado --------------------
 function fakeObject(kind) {
@@ -187,6 +192,29 @@ console.log(`chunk de teste: ${rawWalls.cx}_${rawWalls.cy} (${wallScore}); árvo
   const reloaded = new ModStore(); const p2 = new ModPersistence(reloaded, storage);
   p2.load();
   ok(!reloaded.isRendered("tree:p"), "salvo localmente e recarregado em outra 'página'");
+
+  // baseline oficial: migra storage antigo sem defaults e preserva restaurações locais.
+  const baselineIds = Object.keys(defaultWorldMods.mods);
+  const oldBrowserData = new Map([[mods.STORAGE_KEY, JSON.stringify({
+    format: MODS_FORMAT, version: 1, mapVersion: currentMapVersion,
+    mods: { "tree:legacy-local": { hidden: true } }, added: []
+  })]]);
+  const baselineStorage = {
+    getItem: k => oldBrowserData.get(k) ?? null,
+    setItem: (k, v) => oldBrowserData.set(k, v),
+    removeItem: k => oldBrowserData.delete(k)
+  };
+  const seeded = new ModStore(defaultWorldMods);
+  const baselineOptions = { meta: () => ({ mapVersion: currentMapVersion }), baselineVersion: 1 };
+  const migrated = new ModPersistence(seeded, baselineStorage, baselineOptions).load();
+  const migratedPayload = JSON.parse(oldBrowserData.get(mods.STORAGE_KEY));
+  ok(migrated.loaded && seeded.entry(baselineIds[0])?.removed && seeded.entry("tree:legacy-local")?.hidden && migratedPayload.defaultsVersion === 1,
+    "storage antigo recebe o baseline oficial sem perder alterações locais e grava a versão-base");
+  seeded.restore(baselineIds[0]);
+  const afterRestoreReload = new ModStore(defaultWorldMods);
+  new ModPersistence(afterRestoreReload, baselineStorage, baselineOptions).load();
+  ok(!afterRestoreReload.entry(baselineIds[0]) && afterRestoreReload.entry(baselineIds[1])?.removed && afterRestoreReload.entry("tree:legacy-local")?.hidden,
+    "restaurar uma casa sobrepõe o baseline e continua restaurada após reiniciar");
   const mismatchStorage = new Map();
   mismatchStorage.set(mods.STORAGE_KEY, JSON.stringify({
     format: MODS_FORMAT, version: 1, mapVersion: "map-a", mods: { "tree:old": { removed: true } }

@@ -105,7 +105,10 @@ Esses itens pertencem à visão futura. Antes de implementar, planeje uma fatia 
 
 ## World Editor
 
-- WorldEditor (F8) mantém alterações não destrutivas numa camada separada em worldMods.js; os dados preparados do mapa permanecem intactos.
+- `src/data/world-mods.default.json` define o baseline oficial de modificações. `WorldScene` valida sua `mapVersion` contra `mapVersionKey(mapData)` e aplica a camada compartilhada antes de criar os chunks, tanto em desenvolvimento quanto no build de produção.
+- O baseline atual contém 70 construções exportadas como removidas. O `map.json`, manifesto e chunks originais permanecem intactos.
+- WorldEditor (F8) compartilha a camada da cena e mantém alterações não destrutivas em `worldMods.js`; restaurações e novas edições são persistidas no `localStorage`.
+- Storages antigos migram uma única vez para o baseline, preservando edições locais; `defaultsVersion` registra o snapshot já migrado para que restaurar uma construção não faça ela reaparecer na próxima inicialização.
 - WorldChunkManager reaplica edições a chunks carregados e aos chunks criados posteriormente; chunks em montagem são invalidados e reiniciados com o estado atualizado.
 - WorldInspector (F7) continua sendo somente leitura. Os dois painéis podem ficar abertos ao mesmo tempo.
 - As alterações locais e os arquivos JSON exportados são vinculados à chave de cache dos chunks. Importar uma edição de outro mapa é recusado.
