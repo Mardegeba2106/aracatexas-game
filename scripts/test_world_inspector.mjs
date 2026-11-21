@@ -93,21 +93,15 @@ for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
 }
 const loadedBefore = [...manager.loaded.keys()].sort().join(",");
 const c0 = manager.loaded.get(centerKey);
-const shop = c0.record.buildings.find(b => b.feature.name?.includes("Shopping"));
-const shopPt = (() => { const r = shop.polygons[0][0]; return { x: (Math.min(...r.map(p => p.x)) + Math.max(...r.map(p => p.x))) / 2, y: (Math.min(...r.map(p => p.y)) + Math.max(...r.map(p => p.y))) / 2 }; })();
-
+const activeBuildings = [...manager.loaded.values()].reduce((n, chunk) => n + chunk.record.buildings.length, 0);
+ok(activeBuildings === 0, "chunks carregados não contêm edifícios antigos");
 {
-  const hit = pickBuilding(manager, shopPt);
-  ok(hit?.kind === "building" && hit.item.feature.name === "Araçatuba Shopping Center", "clique dentro do shopping seleciona a construção certa");
-  const lines = describeObject(hit, manager), keys = lines.map(l => l[0]);
-  ok(keys.includes("tipo") && keys.includes("id") && keys.includes("caixa") && keys.includes("chunk"), `descrição traz tipo, id, caixa e chunk (${keys.join(", ")})`);
-  ok(lines.find(l => l[0] === "chunk")[1] === hit.chunkKey, "o chunk exibido é o chunk onde o objeto foi achado");
-  ok(!lines.some(l => l[1] === undefined || l[1] === "" || l[1] === null), "nada vazio é exibido (propriedade ausente some)");
-  ok(pickObject(manager, shopPt).kind === "building", "pickObject dá prioridade à construção sobre o lote");
   manager.showBuildings = false;
-  ok(pickObject(manager, shopPt)?.kind !== "building",
-    "com construções ocultas, o Inspector não seleciona edifícios invisíveis");
+  ok(pickObject(manager, { x: 0, y: 0 })?.kind !== "building",
+    "sem edifícios ativos, o Inspector não seleciona construções antigas");
   manager.showBuildings = true;
+  ok([...manager.loaded.values()].every(chunk => chunk.record.buildings.length === 0),
+    "reativar a camada visual não recria os edifícios removidos");
 }
 {
   // lote: ponto central de um lote sem construção por cima

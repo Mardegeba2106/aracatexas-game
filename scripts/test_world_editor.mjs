@@ -43,8 +43,8 @@ const roadIndex = data("roads-index.json");
 const defaultWorldMods = JSON.parse(fs.readFileSync(path.join(root, "src", "data", "world-mods.default.json"), "utf8"));
 const currentMapVersion = mapVersionKey({ chunkManifest: manifest });
 ok(defaultWorldMods.mapVersion === currentMapVersion, "baseline oficial pertence exatamente à versão atual do mapa");
-ok(Object.keys(defaultWorldMods.mods).length === 70 && Object.values(defaultWorldMods.mods).every(entry => entry.removed === true),
-  "baseline oficial contém as 70 construções exportadas marcadas como removidas");
+ok(Object.keys(defaultWorldMods.mods).length === 0 && defaultWorldMods.defaultsVersion === 2,
+  "baseline oficial vazio: nenhum edifício antigo é mantido como remoção individual");
 
 // ---- cena falsa: objetos que só registram o que foi desenhado --------------------
 function fakeObject(kind) {
@@ -88,7 +88,7 @@ function makeManager({ store = null, buildings = true } = {}) {
   return { m, scene };
 }
 
-// ---- escolhe um chunk real com construções e um lote cujo muro ele mesmo desenha ----
+// ---- escolhe um chunk real com lotes cujo muro ele mesmo desenha ----
 const files = fs.readdirSync(path.join(root, "public/data/chunks"));
 let treesInData = 0;
 const segs = buildRoadSegments(roadIndex);
@@ -193,8 +193,10 @@ console.log(`chunk de teste: ${rawWalls.cx}_${rawWalls.cy} (${wallScore}); árvo
   p2.load();
   ok(!reloaded.isRendered("tree:p"), "salvo localmente e recarregado em outra 'página'");
 
-  // baseline oficial: migra storage antigo sem defaults e preserva restaurações locais.
-  const baselineIds = Object.keys(defaultWorldMods.mods);
+  // baseline de teste: a configuração oficial do jogo agora é vazia.
+  // Usa uma entrada sintética para continuar cobrindo migração e restauração.
+  const baselineIds = ["building:baseline-test:0", "building:baseline-test:1"];
+  const testBaseline = { ...defaultWorldMods, mods: Object.fromEntries(baselineIds.map(id => [id, { removed: true }])) };
   const oldBrowserData = new Map([[mods.STORAGE_KEY, JSON.stringify({
     format: MODS_FORMAT, version: 1, mapVersion: currentMapVersion,
     mods: { "tree:legacy-local": { hidden: true } }, added: []
@@ -204,17 +206,17 @@ console.log(`chunk de teste: ${rawWalls.cx}_${rawWalls.cy} (${wallScore}); árvo
     setItem: (k, v) => oldBrowserData.set(k, v),
     removeItem: k => oldBrowserData.delete(k)
   };
-  const seeded = new ModStore(defaultWorldMods);
-  const baselineOptions = { meta: () => ({ mapVersion: currentMapVersion }), baselineVersion: 1 };
+  const seeded = new ModStore(testBaseline);
+  const baselineOptions = { meta: () => ({ mapVersion: currentMapVersion }), baselineVersion: 2 };
   const migrated = new ModPersistence(seeded, baselineStorage, baselineOptions).load();
   const migratedPayload = JSON.parse(oldBrowserData.get(mods.STORAGE_KEY));
-  ok(migrated.loaded && seeded.entry(baselineIds[0])?.removed && seeded.entry("tree:legacy-local")?.hidden && migratedPayload.defaultsVersion === 1,
-    "storage antigo recebe o baseline oficial sem perder alterações locais e grava a versão-base");
+  ok(migrated.loaded && seeded.entry(baselineIds[0])?.removed && seeded.entry("tree:legacy-local")?.hidden && migratedPayload.defaultsVersion === 2,
+    "storage antigo recebe o baseline de teste sem perder alterações locais e grava a versão-base");
   seeded.restore(baselineIds[0]);
-  const afterRestoreReload = new ModStore(defaultWorldMods);
+  const afterRestoreReload = new ModStore(testBaseline);
   new ModPersistence(afterRestoreReload, baselineStorage, baselineOptions).load();
   ok(!afterRestoreReload.entry(baselineIds[0]) && afterRestoreReload.entry(baselineIds[1])?.removed && afterRestoreReload.entry("tree:legacy-local")?.hidden,
-    "restaurar uma casa sobrepõe o baseline e continua restaurada após reiniciar");
+    "restaurar uma entrada sobrepõe o baseline e continua restaurada após reiniciar");
   const mismatchStorage = new Map();
   mismatchStorage.set(mods.STORAGE_KEY, JSON.stringify({
     format: MODS_FORMAT, version: 1, mapVersion: "map-a", mods: { "tree:old": { removed: true } }
@@ -386,46 +388,9 @@ console.log(`chunk de teste: ${rawWalls.cx}_${rawWalls.cy} (${wallScore}); árvo
     ok(wallColl().length === baseSegs, "abrir de novo restaura");
   }
 
-  // construções: estrutura e telhado separados
-  const b = chunk.record.buildings[0];
-  const bid = ids.building(b.feature.id, 0);
-  const bBase = chunk.record.collisions.filter(c => c.rings).length;
-  ok(bBase >= 1, `construções com colisão (${bBase})`);
-  const gfx = () => scene.created.filter(o => !o.destroyed).length;
-  const objsBefore = chunk.objects.length;
-  session.apply([ids.part(bid, "roof")], { hidden: true }, "ocultar telhado");
-  ok(chunk.record.collisions.filter(c => c.rings).length === bBase, "ocultar só o telhado não mexe na colisão");
-  ok(chunk.record.editorHidden.some(h => h.id === bid && h.parts.join() === "roof"), "telhado oculto listado como parte");
-  ok(chunk.objects.length < objsBefore, "o objeto de telhado deixou de existir no chunk");
-  session.undo();
-  ok(chunk.objects.length === objsBefore, "desfazer devolve exatamente os mesmos objetos");
-  session.apply([bid], { removed: true }, "remover construção");
-  ok(chunk.record.collisions.filter(c => c.rings).length === bBase - 1 && !m.buildingCollision.some(c => c.key === `${b.feature.id}:0`), "remover construção: colisão some, sincronizada");
-  session.apply([bid], { collision: true }, "colisão");
-  ok(m.buildingCollision.some(c => c.key === `${b.feature.id}:0`), "colisão pode continuar mesmo com a aparência removida");
-  session.undo(); session.undo();
-  ok(chunk.record.collisions.filter(c => c.rings).length === bBase, "desfazer: construção e colisão voltam");
-  ok(gfx() > 0, "objetos continuam existindo");
-
-  // seleção individual
-  const center = { x: (b.bounds.minX + b.bounds.maxX) / 2, y: (b.bounds.minY + b.bounds.maxY) / 2 };
-  const cands = pickCandidates(m, center);
-  ok(cands.some(c => c.id === bid && c.kind === "building"), "clicar na construção a seleciona (ID estável)");
-  ok(cands.length === new Set(cands.map(c => c.id)).size, "candidatos sem duplicatas");
-  const lotCand = cands.find(c => c.kind === "lot");
-  if (lotCand) {
-    const assoc = lotAssociations(m, lotCand);
-    ok(assoc.buildings.every(x => x.kind === "building") && Array.isArray(assoc.trees), "lote: lista elementos associados");
-    ok(describeElement(m, store, lotCand).some(([k]) => k === "id"), "lote descrito no painel");
-  }
-  const located = locateElement(m, bid);
-  ok(located && located.id === bid && located.bounds, "locateElement resolve o ID para o elemento");
-  ok(locateElement(m, "tree:inexistente") === null, "ID fora dos chunks carregados retorna null");
-
-  // o elemento ao lado não é afetado pela edição de outro (mesma lista de IDs)
-  const before = JSON.stringify(chunk.record.buildings.map(x => x.feature.id));
-  session.apply([bid], { hidden: true }, "ocultar");
-  ok(JSON.stringify(chunk.record.buildings.map(x => x.feature.id)) === before, "ocultar não apaga dados da construção; só o desenho");
+  // A camada ativa não contém mais edifícios. A edição de edifícios continua coberta
+  // pela corrida sintética abaixo; aqui validamos que nenhum modelo antigo foi carregado.
+  ok(chunk.record.buildings.length === 0, "chunk real não carrega edifícios antigos");
 
   // persistência de muros/construções ao recarregar o chunk
   session.undo();

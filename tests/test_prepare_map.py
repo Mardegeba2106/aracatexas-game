@@ -89,7 +89,7 @@ class MapPreparationTests(unittest.TestCase):
                                "building_type": "house"},
                 "geometry": {"type": "Polygon", "coordinates": polygon}
             }
-            for layer in ("blocks", "lots", "buildings"):
+            for layer in ("blocks", "lots"):
                 (city / f"{layer}.geojson").write_text(
                     json.dumps({"type": "FeatureCollection", "features": [feature]}),
                     encoding="utf-8"
@@ -112,12 +112,14 @@ class MapPreparationTests(unittest.TestCase):
             result = prepare_map.prepare(root, output, 650)
             self.assertEqual(len(result["blocks"]), 1)
             self.assertEqual(len(result["lots"]), 1)
-            self.assertEqual(len(result["buildings"]), 1)
+            self.assertEqual(len(result["buildings"]), 0)
+            self.assertEqual(result["meta"]["counts"]["buildings"], 0)
             self.assertEqual(len(result["roads"]), 1)
             self.assertEqual(result["roads"][0]["name"], "Rua de teste")
             self.assertTrue(output.exists())
             loaded = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(loaded["meta"]["crs"], "EPSG:32722")
+            self.assertEqual(loaded["buildings"], [])
 
 
 if __name__ == "__main__":

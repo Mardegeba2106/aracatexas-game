@@ -6,7 +6,7 @@
 
 ## 1. Estado do projeto
 
-O projeto usa Phaser 3.90.0, Vite 8.3.6 e dados geográficos preparados em EPSG:32722. O mundo é dividido em chunks, com carregamento ao redor da área visível. O mapa, minimapa, índice de vias, lotes, edifícios, árvores, colisões e muros fazem parte da base técnica atual.
+O projeto usa Phaser 3.90.0, Vite 8.3.6 e dados geográficos preparados em EPSG:32722. O mundo é dividido em chunks, com carregamento ao redor da área visível. O mapa ativo mantém quadras, lotes, ruas, calçadas, grama e muros; a camada antiga de edifícios foi removida até a nova arte ser criada.
 
 A prévia visual residencial V4 é experimental e pode ser ativada com ?v4preview=1. A arte V4 não deve ser tratada como substituta automática de toda a arte principal.
 
@@ -21,7 +21,7 @@ A prévia visual residencial V4 é experimental e pode ser ativada com ?v4previe
 
 ### World Inspector — F7
 - Exibe coordenadas de cursor, mundo, metros e lon/lat.
-- Permite destacar e selecionar lotes, construções, muros, árvores e ruas.
+- Permite destacar e selecionar lotes, muros, árvores e ruas. A camada antiga de construções está vazia.
 - Inclui grade, visualização de colisões, limites/estado de chunks e medidor de distância.
 - Atalhos no painel: L (lotes), G (grade), C (colisões), K (chunks), R (medidor), Esc (cancelar/limpar).
 - É somente leitura: não altera o mapa nem força carregamento de chunks.
@@ -36,8 +36,8 @@ A prévia visual residencial V4 é experimental e pode ser ativada com ?v4previe
 ## 3. Validação executada em 21/11/2026
 
 - `npm.cmd run build`: concluído com sucesso. O Vite emitiu apenas o aviso já conhecido de bundle Phaser acima de 500 kB.
-- `npm.cmd run test:editor`: passou, incluindo baseline com 70 construções removidas, migração de `localStorage` antigo e persistência de restauração individual.
-- `npm.cmd run test:editor:ui`: passou; confirmou 70 modificações carregadas, edição real, colisão, persistência, desfazer/refazer/restaurar e coexistência F7/F8.
+- `npm.cmd run test:editor`: validado para a camada de modificações; o baseline oficial agora começa vazio, sem as 70 remoções antigas.
+- `npm.cmd run test:editor:ui`: passou; confirmou camada sem edifícios, painel F8 e coexistência independente com F7.
 - `npm.cmd run test:streaming`, `test:walls`, `test:freecam`, `test:inspector` e `test:data`: todos passaram. Muros: 1.341 lotes lidos, 1.156 planos, zero violações geométricas.
 - `node scripts/e2e_dev_tools.mjs` com preview local: todos os checks passaram, inclusive F6/F7, colisões, LOD e streaming; nenhum erro de console/exceção foi observado.
 
@@ -67,9 +67,9 @@ Não começar vários sistemas grandes em paralelo. Manter entregas pequenas, te
 
 - F8 abre o editor; F7 mantém o Inspector. Seleção, ocultar/remover/restaurar, colisão e histórico Ctrl+Z/Ctrl+Y fazem parte do modo Edição.
 - As edições são salvas em armazenamento local e podem ser exportadas/importadas em JSON.
-- O estado do mapa original não é sobrescrito. Construção/posicionamento continuam reservados para etapa futura.
-- `src/data/world-mods.default.json` é o baseline oficial versionado: as 70 construções do JSON exportado em 21/11/2026 iniciam como removidas.
+- Os polígonos dos 1.023 edifícios antigos e as texturas/sprites dos projetos residenciais anteriores foram arquivados fora de `public/`. Quadras, 1.341 lotes, 210 vias, calçadas, grama e dados de muros permanecem. Construção/posicionamento continuam reservados para etapa futura.
+- `src/data/world-mods.default.json` é o baseline oficial vazio. A identidade do mapa foi atualizada, então modificações locais da versão antiga não são aplicadas ao mapa limpo.
 - `WorldScene` carrega o baseline antes de criar os chunks, inclusive no build de produção. A configuração só é aplicada quando a identidade do mapa coincide exatamente.
-- O World Editor compartilha a camada da cena. Storages antigos recebem o baseline uma vez sem perder edições locais; restaurações individuais continuam persistentes.
+- O World Editor compartilha a camada da cena. Storages com a identidade antiga do mapa são ignorados para não reaplicar IDs de edifícios removidos; novas edições passam a ser salvas com a identidade atual.
 - Testes: `npm.cmd run test:editor`; com Vite ativo, `npm.cmd run test:editor:ui`.
-- O teste de navegador do World Editor também valida uma edição real de construção: remover, sincronizar colisão, persistir, desfazer, refazer e restaurar.
+- O teste de navegador do World Editor valida a camada limpa e a coexistência independente dos painéis F7 (Inspector) e F8 (Editor). A lógica de edição/undo/redo segue coberta pelos testes unitários.

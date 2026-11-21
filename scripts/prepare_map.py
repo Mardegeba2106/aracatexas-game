@@ -255,13 +255,13 @@ def resolve_inputs(source: Path) -> tuple[Path, Path]:
     city_dir = next(
         (p for p in city_candidates if all(
             (p / name).exists() for name in
-            ("blocks.geojson", "lots.geojson", "buildings.geojson")
+            ("blocks.geojson", "lots.geojson")
         )),
         None
     )
     if city_dir is None:
         raise FileNotFoundError(
-            "Não encontrei blocks.geojson, lots.geojson e buildings.geojson. "
+            "Não encontrei blocks.geojson e lots.geojson. "
             "Use --source apontando para a raiz do Knoxify ou para procedural_city."
         )
 
@@ -307,7 +307,7 @@ def prepare(source: Path, output: Path, radius: float = RADIUS_M) -> dict:
     city_dir, cache_file = resolve_inputs(source)
 
     collections = {}
-    for name in ("blocks", "lots", "buildings"):
+    for name in ("blocks", "lots"):
         with (city_dir / f"{name}.geojson").open("r", encoding="utf-8") as fh:
             collections[name] = json.load(fh)
         if collections[name].get("type") != "FeatureCollection":
@@ -333,12 +333,13 @@ def prepare(source: Path, output: Path, radius: float = RADIUS_M) -> dict:
         },
         "blocks": [],
         "lots": [],
+        # Edifícios antigos desativados até a nova arte ser implementada.
         "buildings": [],
         "roads": [],
         "trees": [],
     }
 
-    for layer in ("blocks", "lots", "buildings"):
+    for layer in ("blocks", "lots"):
         for feature in collections[layer].get("features", []):
             polygons = geometry_polygons(feature.get("geometry") or {})
             if not polygons or not geometry_intersects_radius(polygons, radius):

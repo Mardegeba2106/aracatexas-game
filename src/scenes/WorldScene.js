@@ -70,13 +70,9 @@ export default class WorldScene extends Phaser.Scene {
     this.load.image("v4-ground-grass", assetUrl("assets/environment/residential-v4-preview/surfaces/01_grama_256x256.png"));
     this.load.image("v4-ground-dirt", assetUrl("assets/environment/residential-v4-preview/surfaces/02_terra_256x256.png"));
     this.load.image("v4-ground-sand", assetUrl("assets/environment/residential-v4-preview/surfaces/03_areia_256x256.png"));
-    this.load.image("v4-surface-concrete", assetUrl("assets/environment/residential-v4-preview/surfaces/04_concreto_256x256.png"));
     this.load.image("v4-surface-sidewalk", assetUrl("assets/environment/residential-v4-preview/surfaces/05_calcada_256x256.png"));
-    this.load.image("v4-surface-pavers", assetUrl("assets/environment/residential-v4-preview/surfaces/06_pavers_256x256.png"));
     this.load.image("v4-surface-brick", assetUrl("assets/environment/residential-v4-preview/surfaces/07_tijolos_256x256.png"));
     this.load.image("v4-surface-wood", assetUrl("assets/environment/residential-v4-preview/surfaces/08_madeira_256x256.png"));
-    this.load.image("v4-roof-ceramic", assetUrl("assets/environment/residential-v4-preview/surfaces/09_telhas_ceramicas_256x256.png"));
-    this.load.image("v4-roof-metal", assetUrl("assets/environment/residential-v4-preview/surfaces/10_telhado_metalico_256x256.png"));
     this.load.image("v4-surface-caqui", assetUrl("assets/environment/residential-v4-preview/surfaces/11_pisos_externos_caquinho_256x256.png"));
 
     // Componentes frontais de muro/portÃƒÂ£o V4, na mesma perspectiva 3/4 do jogo.
@@ -100,33 +96,11 @@ export default class WorldScene extends Phaser.Scene {
 
     this.load.image("grass-ground-v2",
       assetUrl("assets/environment/residential-v2/textures/tiles/grass_tileable.png"));
-    this.load.image("roof-terracotta-orange-v2",
-      assetUrl("assets/environment/residential-v2/textures/tiles/roof_terracotta_orange_tileable.png"));
-    this.load.image("roof-terracotta-shadow-v2",
-      assetUrl("assets/environment/residential-v2/textures/tiles/roof_terracotta_shadow_tileable.png"));
-    this.load.image("roof-corrugated-gray-v2",
-      assetUrl("assets/environment/residential-v2/textures/tiles/roof_corrugated_gray_tileable.png"));
-    this.load.image("roof-corrugated-red-v2",
-      assetUrl("assets/environment/residential-v2/textures/tiles/roof_corrugated_red_tileable.png"));
     this.load.image("roof-pavers-v2",
       assetUrl("assets/environment/residential-v2/textures/tiles/sidewalk_pavers_tileable.png"));
 
     // Complete top-down residential compositions. The angled-front references
     // stay out of this scene because the game camera is top-down.
-    this.load.image("property-modern-compact-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/modern_compact.png"));
-    this.load.image("property-modern-gray-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/modern_gray.png"));
-    this.load.image("property-modern-long-pool-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/modern_long_pool.png"));
-    this.load.image("property-modern-narrow-flat-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/modern_narrow_flat.png"));
-    this.load.image("property-modern-pool-dark-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/modern_pool_dark.png"));
-    this.load.image("property-modern-pool-light-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/modern_pool_light.png"));
-    this.load.image("property-traditional-red-v2",
-      assetUrl("assets/environment/residential-v2/properties/top_down/traditional_red_roof.png"));
   }
 
   create() {

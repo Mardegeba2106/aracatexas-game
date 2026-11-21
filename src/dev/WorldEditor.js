@@ -16,7 +16,7 @@ import {
 import { ModeRegistry } from "./worldEditorModes.js";
 import { WorldEditorPanel } from "./worldEditorPanel.js";
 
-const DEFAULT_WORLD_MODS_VERSION = 1;
+const DEFAULT_WORLD_MODS_VERSION = 2;
 const COLOR = { selected: 0xffdf78, hover: 0x00e5ff, hidden: 0xff9f43, removed: 0xff4d4d, noCollision: 0xb28cff, ghost: 0x9aa6a0 };
 
 const view = cam => ({
@@ -88,7 +88,9 @@ export class WorldEditor {
     scene.hudCamera?.ignore?.(this.layer);
 
     if (loaded?.error) {
-      this.message = "Alterações salvas não carregadas: " + loaded.error.message;
+      this.message = loaded.error.message.includes("As modificações pertencem à versão")
+        ? "As alterações da versão antiga foram ignoradas porque a camada de edifícios foi limpa. Novas edições serão salvas normalmente."
+        : "Alterações salvas não carregadas: " + loaded.error.message;
     } else if (loaded?.loaded && loaded.count) {
       this.message = String(loaded.count) + " modificações carregadas.";
       if (loaded.warning) this.message += " " + loaded.warning;

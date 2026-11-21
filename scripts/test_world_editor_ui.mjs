@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const url = process.argv[2] || process.env.WORLD_EDITOR_E2E_URL ||
-  "http://127.0.0.1:5173/?v4preview=1&buildings=1";
+  "http://127.0.0.1:5173/?v4preview=1";
 const candidates = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
@@ -65,7 +65,9 @@ try {
   if (!ready) throw new Error("World Editor não carregou.");
   const initial = await evaluate("({editorOpen:window.__araScene.devEditor.open,panelOpen:document.querySelector('.wed').classList.contains('open'),inspectorReady:Boolean(window.__araScene.devInspector),baselineCount:window.__araScene.devEditor.store.size})");
   if (initial.editorOpen || initial.panelOpen) throw new Error("Editor deveria iniciar fechado.");
-  if (initial.baselineCount !== 70) throw new Error("Baseline oficial não foi carregado: " + initial.baselineCount + " modificações.");
+  if (initial.baselineCount !== 0) throw new Error("O mapa limpo deveria iniciar sem modificações antigas: " + initial.baselineCount);
+  const cleanMap = await evaluate("(() => { const m=window.__araScene.chunkManager; const chunks=[...m.loaded.values()]; return {buildings:chunks.reduce((n,c)=>n+(c.record?.buildings?.length||0),0), rendered:chunks.some(c=>c.buildingsRendered), collisions:window.__araScene.buildingCollision.length}; })()");
+  if (cleanMap.buildings !== 0 || cleanMap.rendered || cleanMap.collisions !== 0) throw new Error("A camada antiga de edifícios ainda está ativa: " + JSON.stringify(cleanMap));
 
   const key = async type => send("Input.dispatchKeyEvent", {
     type, code: "F8", key: "F8", windowsVirtualKeyCode: 119, nativeVirtualKeyCode: 119
@@ -75,26 +77,6 @@ try {
   if (!opened.editorOpen || !opened.panelOpen || !opened.hasEdit || !opened.hasBuild || !opened.buildReserved) {
     throw new Error("Painel F8 abriu com conteúdo inesperado: " + JSON.stringify(opened));
   }
-  const liveEdit = await evaluate("(() => { " +
-    "const s=window.__araScene,e=s.devEditor,m=s.chunkManager; " +
-    "if (!m.showBuildings) return {error:'teste precisa de buildings=1'}; " +
-    "let selected=null; " +
-    "const center=ring=>{let area2=0,cx=0,cy=0; for(let i=0;i<ring.length-1;i++){const a=ring[i],b=ring[i+1],cross=a.x*b.y-b.x*a.y; area2+=cross;cx+=(a.x+b.x)*cross;cy+=(a.y+b.y)*cross;} return Math.abs(area2)>1e-6?{x:cx/(3*area2),y:cy/(3*area2)}:{x:ring.reduce((v,p)=>v+p.x,0)/ring.length,y:ring.reduce((v,p)=>v+p.y,0)/ring.length};}; " +
-    "for(const c of m.loaded.values()){if(c.state!=='loaded')continue;for(const b of c.record?.buildings||[]){for(const poly of b.polygons||[]){const ring=poly[0];if(!ring||ring.length<4)continue;const p=center(ring);const hit=e.selectAt(p);if(hit?.kind==='building'&&!e.store.effective(hit.id).removed&&!e.store.effective(hit.id).hidden){selected=hit;break;}}if(selected)break;}if(selected)break;} " +
-    "if(!selected)return {error:'nenhuma construção selecionável nos chunks carregados',loaded:m.loaded.size}; " +
-    "const id=selected.id,ci=Number(id.slice(id.lastIndexOf(':')+1)),collisionKey=String(selected.feature.id)+':'+ci; " +
-    "const collisionBefore=s.buildingCollision.some(c=>c.key===collisionKey); " +
-    "e.removeSelected(); " +
-    "const removed=e.store.effective(id).removed===true&&!m.isElementRendered(id); " +
-    "const collisionRemoved=!s.buildingCollision.some(c=>c.key===collisionKey); " +
-    "const saved=JSON.parse(localStorage.getItem('aracatexas.worldmods.v1')||'{}'); " +
-    "const persisted=saved.mods?.[id]?.removed===true; " +
-    "e.undo(); const undone=m.isElementRendered(id)&&s.buildingCollision.some(c=>c.key===collisionKey); " +
-    "e.redo(); const redone=e.store.effective(id).removed===true&&!m.isElementRendered(id); " +
-    "e.restoreSelected(); const restored=!e.store.entry(id)&&m.isElementRendered(id)&&s.buildingCollision.some(c=>c.key===collisionKey); " +
-    "return {ok:collisionBefore&&removed&&collisionRemoved&&persisted&&undone&&redone&&restored,id,collisionBefore,removed,collisionRemoved,persisted,undone,redone,restored}; " +
-  "})()");
-  if (!liveEdit.ok) throw new Error("Edição real da construção falhou: " + JSON.stringify(liveEdit));
   await send("Input.dispatchKeyEvent", { type: "keyDown", code: "F7", key: "F7", windowsVirtualKeyCode: 118, nativeVirtualKeyCode: 118 });
   await sleep(80);
   await send("Input.dispatchKeyEvent", { type: "keyUp", code: "F7", key: "F7", windowsVirtualKeyCode: 118, nativeVirtualKeyCode: 118 });
@@ -109,7 +91,7 @@ try {
     throw new Error("Fechar o F8 afetou o estado do F7: " + JSON.stringify(closed));
   }
   if (errors.length) throw new Error("Erros no navegador: " + errors.join(" | "));
-  console.log("UI WORLD EDITOR PASSOU", JSON.stringify({ initial, opened, liveEdit, bothOpen, closed, errors }));
+  console.log("UI WORLD EDITOR PASSOU", JSON.stringify({ initial, cleanMap, opened, bothOpen, closed, errors }));
 } finally {
   try { ws?.close(); } catch {}
   chrome.kill();

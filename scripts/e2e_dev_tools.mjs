@@ -141,9 +141,9 @@ try {
       buildingCollisions: s.buildingCollision?.length || 0
     };
   })()`);
-  note(hiddenBuildings.enabled === false && hiddenBuildings.mapDataRetained &&
+  note(hiddenBuildings.enabled === false && !hiddenBuildings.mapDataRetained &&
     hiddenBuildings.anyRendered === false && hiddenBuildings.buildingCollisions === 0,
-    `construcoes ocultas, dados preservados e sem colisao invisivel (${JSON.stringify(hiddenBuildings)})`);
+    `edifícios antigos removidos da camada ativa, sem renderização ou colisão (${JSON.stringify(hiddenBuildings)})`);
 
   // centraliza num lote vazio e testa hover / clique / info sem edificios visuais
   const target = await evalJs(`(() => {

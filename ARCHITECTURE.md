@@ -33,7 +33,7 @@ O mapa usa o sistema de coordenadas `EPSG:32722` (UTM 22S). A cena usa a escala 
 Carrega em paralelo o manifesto do mundo e os dados do minimapa. Valida versão do manifesto e CRS. Tenta carregar `roads-index.json`; se estiver ausente, avisa no console e retorna o índice vazio, o que desativa a geração dos muros dependentes desse índice.
 
 ### `src/scenes/WorldChunkManager.js`
-É responsável por trabalhar com os dados divididos em chunks. O código define tamanho padrão de 512 pixels, carrega a janela necessária ao redor da área visível e mantém estruturas de chunks carregados/disponíveis. Também normaliza registros de quadras, lotes, ruas, edifícios e árvores, instancia objetos visuais e mantém dados de colisão/cache.
+É responsável por trabalhar com os dados divididos em chunks. O código define tamanho padrão de 512 pixels, carrega a janela necessária ao redor da área visível e mantém estruturas de chunks carregados/disponíveis. Também normaliza registros de quadras, lotes, ruas e árvores, instancia objetos visuais e mantém dados de colisão/cache. A camada de edifícios está vazia até a substituição da arte antiga.
 
 Não force carregamento de chunks apenas para inspeção. Ferramentas de debug devem observar os dados já disponíveis e preservar o comportamento do gerenciador.
 
@@ -106,9 +106,9 @@ Esses itens pertencem à visão futura. Antes de implementar, planeje uma fatia 
 ## World Editor
 
 - `src/data/world-mods.default.json` define o baseline oficial de modificações. `WorldScene` valida sua `mapVersion` contra `mapVersionKey(mapData)` e aplica a camada compartilhada antes de criar os chunks, tanto em desenvolvimento quanto no build de produção.
-- O baseline atual contém 70 construções exportadas como removidas. O `map.json`, manifesto e chunks originais permanecem intactos.
+- A camada ativa não contém os 1.023 edifícios antigos. Os polígonos foram arquivados em `archive/legacy-buildings-2026-11-21.json` e as antigas sprites/texturas em `archive/legacy-house-art/`, ambos fora de `public/` e sem serem carregados pelo jogo. Quadras, lotes, ruas, calçadas, grama e muros foram preservados.
 - WorldEditor (F8) compartilha a camada da cena e mantém alterações não destrutivas em `worldMods.js`; restaurações e novas edições são persistidas no `localStorage`.
-- Storages antigos migram uma única vez para o baseline, preservando edições locais; `defaultsVersion` registra o snapshot já migrado para que restaurar uma construção não faça ela reaparecer na próxima inicialização.
+- A identidade do mapa mudou após a limpeza. Modificações locais da versão anterior são rejeitadas por incompatibilidade de `mapVersion`, evitando referências a edifícios que não existem mais.
 - WorldChunkManager reaplica edições a chunks carregados e aos chunks criados posteriormente; chunks em montagem são invalidados e reiniciados com o estado atualizado.
 - WorldInspector (F7) continua sendo somente leitura. Os dois painéis podem ficar abertos ao mesmo tempo.
 - As alterações locais e os arquivos JSON exportados são vinculados à chave de cache dos chunks. Importar uma edição de outro mapa é recusado.
