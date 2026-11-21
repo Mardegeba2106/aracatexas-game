@@ -259,7 +259,7 @@ export class WorldInspector {
       g.lineStyle(width * px, color, 1);
       g.fillStyle(color, fillAlpha);
       if (sel.kind === "lot" || sel.kind === "building") {
-        const ring = sel.item.polygons[sel.polygonIndex][0];
+        const ring = sel.item.polygons[sel.fragmentIndex ?? sel.polygonIndex][0];
         if (fillAlpha) g.fillPoints(ring, true, true);
         g.strokePoints(ring, true, true);
       } else if (sel.kind === "road") {

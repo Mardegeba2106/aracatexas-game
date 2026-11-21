@@ -140,9 +140,13 @@ function pickPolygon(manager, p, type) {
     for (let i = 0; i < item.polygons.length; i++) {
       if (pointInPolygon(p, item.polygons[i])) {
         // World Editor: construção ocultada/removida não é mais "visível" para a consulta.
+        const polygonIndex = item.polygonIndices?.[i] ?? i;
         if (type === "buildings" && manager.isElementRendered &&
-            !manager.isElementRendered(modIds.building(item.feature.id, i))) continue;
-        return { kind: type === "lots" ? "lot" : "building", item, polygonIndex: i, chunkKey: hit.chunk.key };
+            !manager.isElementRendered(modIds.building(item.feature.id, polygonIndex))) continue;
+        return {
+          kind: type === "lots" ? "lot" : "building",
+          item, polygonIndex, fragmentIndex: i, chunkKey: hit.chunk.key
+        };
       }
     }
   }
@@ -251,7 +255,7 @@ export function describeObject(sel, manager) {
 
   if (sel.kind === "lot" || sel.kind === "building") {
     const f = sel.item.feature;
-    const st = polygonStats(sel.item.polygons, sel.polygonIndex);
+    const st = polygonStats(sel.item.polygons, sel.fragmentIndex ?? sel.polygonIndex);
     add("tipo", sel.kind === "lot" ? "lote" : `construção (${f.building_type || "casa"})`);
     add("id", f.id);
     if (sel.kind === "lot") { add("zona", f.zone); add("área", f.area_m2 !== undefined ? `${fmt(f.area_m2)} m²` : null); }
@@ -260,7 +264,10 @@ export function describeObject(sel, manager) {
     add("centro", at(st.center));
     add("vértices", st.vertices);
     add("chunk", sel.chunkKey);
-    const skip = ["id", "zone", "area_m2", "name", "building_type"];
+    const skip = [
+      "id", "zone", "area_m2", "name", "building_type",
+      "polygon_indices", "full_polygon_indices", "source_polygons", "chunk_clipped"
+    ];
     for (const [k, v] of featureProps(f, skip, 6)) add(k, v);
     if (sel.kind === "lot") {
       const key = `${f.id}:${sel.polygonIndex}`;

@@ -28,9 +28,19 @@ O comando `npm run prepare:map` executa a preparação, a divisão em chunks e a
 
 O mapa usa o sistema de coordenadas `EPSG:32722` (UTM 22S). A cena usa a escala de 16 pixels por metro (`PPM = 16`) e converte o eixo Y do mapa para o eixo de tela do Phaser.
 
+### Particionamento geometrico dos chunks (manifesto v2)
+
+- scripts/split_map_chunks.py recorta quadras e lotes na divisa de cada chunk usando Shapely. Geometrias concavas, buracos e intersecoes que geram mais de um fragmento no mesmo chunk sao preservados.
+- Cada fragmento carrega polygon_indices para manter o indice original. chunk_clipped: true informa ao renderizador que o poligono ja esta local e nao deve passar por um segundo recorte.
+- Lotes totalmente contidos em um chunk usam full_polygon_indices. Lotes que atravessam chunks mantem source_polygons uma unica vez, no chunk da ancora calculada com a mesma limpeza e orientacao de lotWalls.js. Isso permite construir o muro pelo perimetro completo sem duplicar a geometria em todos os chunks.
+- Edificios ainda usam o formato anterior. A separacao de footprint, composicao visual e colisao precisa de uma etapa propria antes de recorta-los.
+- world-manifest.json versao 2 separa map_version (identidade estavel para edicoes do World Editor) de cache_version (invalidacao dos arquivos de chunk).
+- O preparo do mapa requer Shapely: python -m pip install -r requirements.txt.
+
+
 ## 3. Carregamento e gerenciamento de chunks
 ### `src/data/mapLoader.js`
-Carrega em paralelo o manifesto do mundo e os dados do minimapa. Valida versão do manifesto e CRS. Tenta carregar `roads-index.json`; se estiver ausente, avisa no console e retorna o índice vazio, o que desativa a geração dos muros dependentes desse índice.
+Carrega em paralelo o manifesto do mundo e os dados do minimapa. Aceita manifestos v1 e v2; a versao 2 separa a identidade do mapa da chave de cache dos chunks. Valida versão do manifesto e CRS. Tenta carregar `roads-index.json`; se estiver ausente, avisa no console e retorna o índice vazio, o que desativa a geração dos muros dependentes desse índice.
 
 ### `src/scenes/WorldChunkManager.js`
 É responsável por trabalhar com os dados divididos em chunks. O código define tamanho padrão de 512 pixels, carrega a janela necessária ao redor da área visível e mantém estruturas de chunks carregados/disponíveis. Também normaliza registros de quadras, lotes, ruas e árvores, instancia objetos visuais e mantém dados de colisão/cache. A camada de edifícios está vazia até a substituição da arte antiga.

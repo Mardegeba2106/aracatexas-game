@@ -15,9 +15,16 @@ export const STORAGE_KEY = "aracatexas.worldmods.v1";
 // A versão do manifesto identifica seu formato, não a identidade do mapa.
 export function mapVersionKey(mapData) {
   if (!mapData) return null;
-  if (mapData.chunkCacheKey != null) return String(mapData.chunkCacheKey);
+  // A identidade do mundo n?o muda quando apenas a parti??o dos chunks muda.
+  // Isso preserva as edi??es locais do World Editor durante otimiza??es internas.
+  if (mapData.mapVersion != null) return String(mapData.mapVersion);
   const manifest = mapData.chunkManifest ?? mapData.manifest ?? null;
-  if (!manifest) return null;
+  if (!manifest) {
+    if (mapData.chunkCacheKey != null) return String(mapData.chunkCacheKey);
+    return null;
+  }
+  if (manifest.map_version != null) return encodeURIComponent(String(manifest.map_version));
+  if (mapData.chunkCacheKey != null) return String(mapData.chunkCacheKey);
   if (manifest.cache_version != null) return encodeURIComponent(String(manifest.cache_version));
   const meta = manifest.meta ?? {};
   const counts = meta.counts ?? {};

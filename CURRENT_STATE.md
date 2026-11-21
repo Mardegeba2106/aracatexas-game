@@ -10,7 +10,16 @@ O projeto usa Phaser 3.90.0, Vite 8.3.6 e dados geográficos preparados em EPSG:
 
 A prévia visual residencial V4 é experimental e pode ser ativada com ?v4preview=1. A arte V4 não deve ser tratada como substituta automática de toda a arte principal.
 
-## 2. Ferramentas de desenvolvimento
+## 2. Otimizacao geometrica dos chunks
+
+- Quadras e lotes agora sao recortados no gerador para armazenar somente a geometria local de cada chunk. Os indices originais sao preservados para o Inspector, o Editor e os muros.
+- Lotes que cruzam chunks mantem uma unica geometria-fonte no chunk de ancora de lotWalls.js; os demais chunks guardam apenas os fragmentos locais. Edificios permanecem no formato anterior ate uma etapa especifica de footprint/colisao.
+- Manifesto v2 usa map_version estavel e cache_version independente. A identidade atual do mapa foi preservada para nao invalidar edicoes locais do World Editor.
+- Dependencia de preparo: python -m pip install -r requirements.txt (Shapely).
+
+**Medicao no mapa atual:** 1.732 -> 1.604 chunks; JSON espacial de 6.473.824 -> 2.925.302 bytes (reducao de aproximadamente 54,8%). As 1.341 geometrias de lote e 150 de quadra continuam cobertas. Diferenca maxima de area na validacao numerica: menor que 0,00028 m2 por poligono.
+
+## 3. Ferramentas de desenvolvimento
 
 ### Free Camera — F6
 - Movimenta a câmera independentemente do personagem.

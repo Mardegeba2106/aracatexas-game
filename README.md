@@ -45,7 +45,7 @@ Abra o PowerShell dentro da pasta `aracatexas-game` e execute:
 npm install
 ```
 
-O conversor usa apenas a biblioteca padrão do Python; não é necessário instalar dependências Python extras. Ele usa `pyproj` quando está instalado e contém um cálculo UTM 22S alternativo quando não está.
+O preparo do mapa usa Shapely para recortar quadras e lotes nos limites dos chunks, preservando geometrias concavas e buracos. Instale a dependencia com python -m pip install -r requirements.txt. O jogo em execucao nao depende de Shapely.
 
 ## 3. Preparar o mapa real
 

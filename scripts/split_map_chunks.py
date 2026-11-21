@@ -7,6 +7,14 @@ import json
 import math
 from pathlib import Path
 
+try:
+    from shapely.geometry import Polygon, box
+except ImportError as exc:
+    raise SystemExit(
+        "Optimized polygon clipping requires Shapely. "
+        "Execute: python -m pip install -r requirements.txt"
+    ) from exc
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "public" / "data" / "map.json"
 DATA_DIR = ROOT / "public" / "data"
@@ -44,7 +52,227 @@ def empty_chunk(cx: int, cy: int):
     }
 
 
+def polygon_bounds(polygon):
+    xs = [point[0] for ring in polygon for point in ring]
+    ys = [point[1] for ring in polygon for point in ring]
+    if not xs or not ys:
+        return None
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def polygon_parts(geometry):
+    if geometry.is_empty:
+        return []
+    if geometry.geom_type == "Polygon":
+        return [geometry] if geometry.area > EPS else []
+    if geometry.geom_type == "MultiPolygon":
+        return [part for part in geometry.geoms if part.area > EPS]
+    if geometry.geom_type == "GeometryCollection":
+        parts = []
+        for part in geometry.geoms:
+            parts.extend(polygon_parts(part))
+        return parts
+    return []
+
+
+def rounded_ring(coords):
+    points = [[round(float(x), 6), round(float(y), 6)] for x, y in coords]
+    # Coordinates are rounded to six decimals, without shape simplification.
+    # Consecutive duplicates created by rounding are removed.
+    clean = []
+    for point in points:
+        if not clean or point != clean[-1]:
+            clean.append(point)
+    if clean and clean[0] != clean[-1]:
+        clean.append(clean[0])
+    return clean if len(clean) >= 4 else []
+
+
+def polygon_to_coords(polygon):
+    outer = rounded_ring(polygon.exterior.coords)
+    if not outer:
+        return None
+    rings = [outer]
+    for interior in polygon.interiors:
+        hole = rounded_ring(interior.coords)
+        if hole:
+            rings.append(hole)
+    return rings
+
+
+def lot_wall_anchor_chunk(coordinates):
+    """Mirror cleanRing and ring orientation from lotWalls.js to locate the wall anchor."""
+    if not coordinates or not coordinates[0]:
+        return (0, 0)
+
+    ring = [
+        {"x": float(x) * 16, "y": -float(y) * 16}
+        for x, y in coordinates[0]
+    ]
+    distance = lambda a, b: math.hypot(a["x"] - b["x"], a["y"] - b["y"])
+
+    if len(ring) > 1 and distance(ring[0], ring[-1]) < 1e-3:
+        ring.pop()
+
+    sin_tolerance = math.sin(math.radians(4))
+    changed = True
+    while changed and len(ring) > 3:
+        changed = False
+        for index in range(len(ring)):
+            previous = ring[(index - 1) % len(ring)]
+            current = ring[index]
+            following = ring[(index + 1) % len(ring)]
+            length_a = distance(previous, current)
+            length_b = distance(current, following)
+
+            if length_a < 24 or length_b < 24:
+                ring.pop(index)
+                changed = True
+                break
+
+            cross = abs(
+                (current["x"] - previous["x"]) *
+                (following["y"] - current["y"]) -
+                (current["y"] - previous["y"]) *
+                (following["x"] - current["x"])
+            )
+            dot = (
+                (current["x"] - previous["x"]) *
+                (following["x"] - current["x"]) +
+                (current["y"] - previous["y"]) *
+                (following["y"] - current["y"])
+            )
+            if dot > 0 and cross / (length_a * length_b) < sin_tolerance:
+                ring.pop(index)
+                changed = True
+                break
+
+    if len(ring) < 3:
+        first = coordinates[0][0]
+        return math.floor(first[0] / CHUNK_METERS), math.floor(-first[1] / CHUNK_METERS)
+
+    area2 = sum(
+        ring[index]["x"] * ring[(index + 1) % len(ring)]["y"] -
+        ring[(index + 1) % len(ring)]["x"] * ring[index]["y"]
+        for index in range(len(ring))
+    )
+    if area2 < 0:
+        ring.reverse()
+
+    anchor = ring[0]
+    return math.floor(anchor["x"] / 512), math.floor(anchor["y"] / 512)
+
+
+def add_clipped_polygon_feature(chunks, layer, feature):
+    # Each fragment contains only geometry inside its chunk.
+    # Lots keep their complete source geometry only once in the wall-anchor chunk,
+    # so wall generation can use the complete perimeter.
+    entries = {}
+    source_by_chunk = {}
+
+    def ensure_entry(key):
+        if key not in entries:
+            cx, cy = key
+            chunk = chunks.setdefault(key, empty_chunk(cx, cy))
+            entry = {
+                **feature,
+                "polygons": [],
+                "polygon_indices": [],
+                "full_polygon_indices": [],
+                "chunk_clipped": True,
+            }
+            entries[key] = entry
+            chunk[layer].append(entry)
+        return entries[key]
+
+    for polygon_index, coordinates in enumerate(feature.get("polygons") or []):
+        if not coordinates or not coordinates[0] or len(coordinates[0]) < 4:
+            continue
+        geometry = Polygon(coordinates[0], coordinates[1:])
+        if geometry.is_empty or geometry.area <= EPS:
+            continue
+        if not geometry.is_valid:
+            raise ValueError(
+                f"Invalid polygon in {layer} {feature.get('id')} "
+                f"(index {polygon_index}); refusing to alter it silently."
+            )
+
+        bounds = polygon_bounds(coordinates)
+        if bounds is None:
+            continue
+        cx0, cy0, cx1, cy1 = chunk_range(bounds)
+        fragments = {}
+
+        for cy in range(cy0, cy1 + 1):
+            for cx in range(cx0, cx1 + 1):
+                key = (cx, cy)
+                rect = box(
+                    cx * CHUNK_METERS,
+                    -(cy + 1) * CHUNK_METERS,
+                    (cx + 1) * CHUNK_METERS,
+                    -cy * CHUNK_METERS,
+                )
+                clipped = geometry.intersection(rect)
+                parts = []
+                for part in polygon_parts(clipped):
+                    converted = polygon_to_coords(part)
+                    if converted:
+                        parts.append(converted)
+                if parts:
+                    fragments[key] = parts
+
+        if not fragments:
+            continue
+
+        for key, parts in fragments.items():
+            entry = ensure_entry(key)
+            for part in parts:
+                entry["polygons"].append(part)
+                entry["polygon_indices"].append(polygon_index)
+
+        # The first vertex is the anchor used by the current wall system.
+        # lotWalls.js calls cleanRing and can move the first vertex
+        # when removing short/collinear edges or reversing ring orientation.
+        # The single source copy must live in the exact anchor chunk.
+        owner = lot_wall_anchor_chunk(coordinates) if layer == "lots" else (
+            math.floor(coordinates[0][0][0] / CHUNK_METERS),
+            math.floor(-coordinates[0][0][1] / CHUNK_METERS),
+        )
+        full_in_one_chunk = (
+            len(fragments) == 1
+            and owner in fragments
+            and geometry.equals(
+                Polygon(
+                    fragments[owner][0][0],
+                    fragments[owner][0][1:],
+                )
+            )
+            and len(fragments[owner]) == 1
+        )
+
+        if layer == "lots":
+            if full_in_one_chunk:
+                ensure_entry(owner)["full_polygon_indices"].append(polygon_index)
+            else:
+                # Source geometry stays only in the anchor chunk. Other chunks
+                # receive only the local geometry needed for drawing and selection.
+                source_by_chunk.setdefault(owner, []).append({
+                    "index": polygon_index,
+                    "rings": coordinates,
+                })
+
+    if layer == "lots":
+        for key, sources in source_by_chunk.items():
+            ensure_entry(key)["source_polygons"] = sources
+
+
 def add_feature(chunks, layer, feature):
+    if layer in ("blocks", "lots"):
+        add_clipped_polygon_feature(chunks, layer, feature)
+        return
+
+    # Buildings keep the current format until a dedicated implementation
+    # can separate their footprints, collision and visual composition by fragment.
     bounds = feature_bounds(feature)
     if bounds is None:
         return
@@ -199,11 +427,32 @@ def write_chunks(map_data):
         path.write_text(encoded, encoding="utf-8")
         total_bytes += path.stat().st_size
 
+    source_bytes = SOURCE.read_bytes()
+    source_hash = hashlib.sha256(source_bytes).hexdigest()[:16]
     cache_version = hashlib.sha256(
-        SOURCE.read_bytes() + Path(__file__).read_bytes()
+        source_bytes + Path(__file__).read_bytes()
     ).hexdigest()[:16]
+
+    # Na primeira migra??o, preserve a identidade antiga do mapa para n?o
+    # invalidar edi??es locais do World Editor por uma mera mudan?a de chunk.
+    manifest_path = DATA_DIR / "world-manifest.json"
+    previous = {}
+    if manifest_path.exists():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+    if previous.get("source_map_hash") == source_hash:
+        map_version = previous.get("map_version") or previous.get("cache_version") or source_hash
+    elif previous.get("source_map_hash") is None and previous.get("cache_version"):
+        map_version = previous["cache_version"]
+    else:
+        map_version = source_hash
+
     manifest = {
-        "version": 1,
+        "version": 2,
+        "map_version": map_version,
+        "source_map_hash": source_hash,
         "cache_version": cache_version,
         "chunk_size_m": CHUNK_METERS,
         "chunk_size_px": int(CHUNK_METERS * 16),

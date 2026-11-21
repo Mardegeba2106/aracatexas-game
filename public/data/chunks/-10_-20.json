@@ -1,1 +1,1 @@
-{"cx":-10,"cy":-20,"blocks":[{"id":"blk_412b3b2b4041","polygons":[[[[-231.724,593.455],[-322.193,585.476],[-328.863,666.847],[-238.421,675.315],[-235.051,634.078],[-231.724,593.455]]]],"zone":"mixed"}],"lots":[],"roads":[],"buildings":[],"trees":[],"labels":[]}
+{"cx":-10,"cy":-20,"blocks":[{"id":"blk_412b3b2b4041","polygons":[[[[-320.0,608.0],[-320.0,640.0],[-288.0,640.0],[-288.0,608.0],[-320.0,608.0]]]],"zone":"mixed","polygon_indices":[0],"full_polygon_indices":[],"chunk_clipped":true}],"lots":[],"roads":[],"buildings":[],"trees":[],"labels":[]}

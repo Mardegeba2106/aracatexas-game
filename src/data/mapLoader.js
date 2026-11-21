@@ -13,7 +13,7 @@ export async function loadPreparedMap() {
     fetchJson(`${baseUrl}data/minimap.json`)
   ]);
 
-  if (manifest.version !== 1 || !Array.isArray(manifest.chunks)) {
+  if (![1, 2].includes(manifest.version) || !Array.isArray(manifest.chunks)) {
     throw new Error("O manifesto de chunks está ausente ou em versão incompatível. Execute npm run prepare:map.");
   }
   if (!manifest.meta || manifest.meta.crs !== "EPSG:32722") {
@@ -44,6 +44,7 @@ export async function loadPreparedMap() {
   return {
     meta: manifest.meta,
     chunkCacheKey,
+    mapVersion: manifest.map_version || chunkCacheKey,
     roads: minimap.roads,
     roadIndex,
     chunkManifest: manifest,

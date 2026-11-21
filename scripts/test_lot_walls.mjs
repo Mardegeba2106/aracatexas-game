@@ -33,10 +33,25 @@ for (const f of fs.readdirSync(path.join(dataDir, "chunks"))) {
   if (!f.endsWith(".json")) continue;
   const d = JSON.parse(fs.readFileSync(path.join(dataDir, "chunks", f), "utf8"));
   for (const lot of d.lots || []) {
-    lot.polygons.forEach((poly, k) => {
-      if (poly.length !== 1) return;
-      lots.set(`${lot.id}:${k}`, { lot, ring: toPx(poly[0]) });
-    });
+    const addSource = (polygonIndex, polygon) => {
+      if (polygon?.length !== 1) return;
+      lots.set(String(lot.id) + ":" + String(polygonIndex), { lot, ring: toPx(polygon[0]) });
+    };
+
+    if (Array.isArray(lot.source_polygons)) {
+      for (const source of lot.source_polygons) addSource(source.index, source.rings);
+    }
+
+    if (lot.chunk_clipped === true) {
+      const full = new Set(lot.full_polygon_indices || []);
+      const indices = lot.polygon_indices || lot.polygons.map((_, i) => i);
+      lot.polygons.forEach((poly, localIndex) => {
+        const originalIndex = indices[localIndex] ?? localIndex;
+        if (full.has(originalIndex)) addSource(originalIndex, poly);
+      });
+    } else {
+      lot.polygons.forEach((poly, index) => addSource(index, poly));
+    }
   }
 }
 

@@ -450,9 +450,24 @@ export default class WorldChunkManager {
     for (const type of ["blocks", "lots", "buildings"]) {
       for (const feature of raw[type] || []) {
         const polygons = getFeaturePolygons(feature, PPM);
-        const bounds = boundsOfPolygons(polygons);
+        const polygonIndices = Array.isArray(feature.polygon_indices)
+          ? feature.polygon_indices
+          : polygons.map((_, index) => index);
+        const fullPolygonIndices = new Set(feature.full_polygon_indices || []);
+        const sourcePolygons = new Map(
+          (feature.source_polygons || []).map(source => [
+            Number(source.index),
+            source.rings.map(ring => ring.map(point => toWorld(point, PPM)))
+          ])
+        );
+        let bounds = boundsOfPolygons(polygons);
+        if (!Number.isFinite(bounds.minX) && sourcePolygons.size) {
+          bounds = boundsOfPolygons([...sourcePolygons.values()]);
+        }
         if (!Number.isFinite(bounds.minX)) continue;
-        const item = { feature, polygons, bounds };
+        const item = {
+          feature, polygons, polygonIndices, fullPolygonIndices, sourcePolygons, bounds
+        };
         record[type].push(item);
         if (type === "buildings" && this.showBuildings) {
           polygons.forEach((polygon, index) => {
@@ -889,6 +904,19 @@ export default class WorldChunkManager {
     }
   }
 
+  // As geometrias dos chunks novos j? v?m recortadas pelo gerador.
+  // Um caminho cont?nuo evita repetir o clip segmento a segmento na montagem.
+  drawLocalRing(graphics, ring) {
+    if (!ring || ring.length < 2) return;
+    graphics.beginPath();
+    graphics.moveTo(ring[0].x, ring[0].y);
+    for (let i = 1; i < ring.length; i++) {
+      graphics.lineTo(ring[i].x, ring[i].y);
+    }
+    graphics.closePath();
+    graphics.strokePath();
+  }
+
   findLotForBuilding(center, record) {
     const matches = [];
     for (const item of record.lots) {
@@ -1313,18 +1341,21 @@ export default class WorldChunkManager {
       for (const polygon of item.polygons) {
         const outer = polygon[0];
         if (!outer || outer.length < 3) continue;
-        const clipped = clipRing(outer, rect);
+        const clipped = item.feature.chunk_clipped === true
+          ? outer
+          : clipRing(outer, rect);
         if (clipped.length < 3) continue;
         g.fillStyle(item.feature.zone === "mixed" ? 0x9c956d : 0x87956a, 0.35);
         g.fillPoints(clipped.map(p => new Phaser.Geom.Point(p.x, p.y)), true, true);
         g.lineStyle(2, 0x526b48, 0.26);
-        this.drawClippedRing(g, outer, rect);
+        if (item.feature.chunk_clipped === true) this.drawLocalRing(g, outer);
+        else this.drawClippedRing(g, outer, rect);
       }
     }
   }
 
   drawLots(chunk, record, rect) {
-    if (!record.lots.length) return;
+    if (!record.lots.some(item => item.polygons.length)) return;
     const g = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(-20));
     for (const item of record.lots) {
       const seed = hash(item.feature.id);
@@ -1332,12 +1363,15 @@ export default class WorldChunkManager {
       for (const polygon of item.polygons) {
         const outer = polygon[0];
         if (!outer || outer.length < 3) continue;
-        const clipped = clipRing(outer, rect);
+        const clipped = item.feature.chunk_clipped === true
+          ? outer
+          : clipRing(outer, rect);
         if (clipped.length < 3) continue;
         g.fillStyle(base, 0.46);
         g.fillPoints(clipped.map(p => new Phaser.Geom.Point(p.x, p.y)), true, true);
         g.lineStyle(1, 0x9eaa68, 0.32);
-        this.drawClippedRing(g, outer, rect);
+        if (item.feature.chunk_clipped === true) this.drawLocalRing(g, outer);
+        else this.drawClippedRing(g, outer, rect);
         const center = polygonCentroid(outer);
         if (seed % 4 === 0 && center.x >= rect.minX && center.x <= rect.maxX &&
             center.y >= rect.minY && center.y <= rect.maxY) {
@@ -1349,13 +1383,23 @@ export default class WorldChunkManager {
   }
 
   // Plano de muro do lote (geometria pura em lotWalls.js), calculado uma vez por lote.
-  getLotWallPlan(item, polygonIndex) {
+  getLotWallPlan(item, polygonIndex, sourcePolygon = null) {
     const lotId = item.feature?.id ?? "lote";
-    const key = `${lotId}:${polygonIndex}`;
+    const key = String(lotId) + ":" + String(polygonIndex);
     if (this.lotWallPlans.has(key)) return this.lotWallPlans.get(key);
     let plan = null;
-    const polygon = item.polygons[polygonIndex];
-    // Só lotes simples (sem buracos) recebem muro.
+    let polygon = sourcePolygon || item.sourcePolygons?.get(polygonIndex) || null;
+
+    if (!polygon && item.feature?.chunk_clipped === true &&
+        item.fullPolygonIndices?.has(polygonIndex)) {
+      const localIndex = item.polygonIndices.indexOf(polygonIndex);
+      if (localIndex >= 0) polygon = item.polygons[localIndex];
+    }
+    if (!polygon && item.feature?.chunk_clipped !== true) {
+      polygon = item.polygons[polygonIndex];
+    }
+
+    // Nunca calcule um muro sobre um fragmento parcial.
     if (polygon && polygon.length === 1 && polygon[0].length >= 4) {
       const result = planLotWall(polygon[0], {
         roadSegs: this.wallRoadSegments,
@@ -1364,7 +1408,7 @@ export default class WorldChunkManager {
       });
       if (result.ok) plan = result;
     }
-    this.lotWallPlans.set(key, plan);
+    if (polygon) this.lotWallPlans.set(key, plan);
     return plan;
   }
 
@@ -1375,8 +1419,25 @@ export default class WorldChunkManager {
 
     const faces = [], tops = [], pillars = [], segments = [], debug = [];
     for (const item of record.lots) {
-      for (let polygonIndex = 0; polygonIndex < item.polygons.length; polygonIndex++) {
-        const plan = this.getLotWallPlan(item, polygonIndex);
+      const wallSources = [];
+      if (item.feature?.chunk_clipped === true) {
+        for (const [polygonIndex, polygon] of item.sourcePolygons || []) {
+          wallSources.push({ polygonIndex, polygon });
+        }
+        for (const polygonIndex of item.fullPolygonIndices || []) {
+          const localIndex = item.polygonIndices.indexOf(polygonIndex);
+          if (localIndex >= 0) {
+            wallSources.push({ polygonIndex, polygon: item.polygons[localIndex] });
+          }
+        }
+      } else {
+        item.polygons.forEach((polygon, polygonIndex) => {
+          wallSources.push({ polygonIndex, polygon });
+        });
+      }
+
+      for (const { polygonIndex, polygon } of wallSources) {
+        const plan = this.getLotWallPlan(item, polygonIndex, polygon);
         if (!plan) continue;
         // O chunk que contém o primeiro vértice do lote desenha o muro inteiro.
         // Assim o topo, que sobe na tela, nunca é cortado na divisa de chunks.
