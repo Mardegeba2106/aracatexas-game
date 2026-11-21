@@ -104,6 +104,10 @@ const shopPt = (() => { const r = shop.polygons[0][0]; return { x: (Math.min(...
   ok(lines.find(l => l[0] === "chunk")[1] === hit.chunkKey, "o chunk exibido é o chunk onde o objeto foi achado");
   ok(!lines.some(l => l[1] === undefined || l[1] === "" || l[1] === null), "nada vazio é exibido (propriedade ausente some)");
   ok(pickObject(manager, shopPt).kind === "building", "pickObject dá prioridade à construção sobre o lote");
+  manager.showBuildings = false;
+  ok(pickObject(manager, shopPt)?.kind !== "building",
+    "com construções ocultas, o Inspector não seleciona edifícios invisíveis");
+  manager.showBuildings = true;
 }
 {
   // lote: ponto central de um lote sem construção por cima

@@ -159,5 +159,24 @@ const frames = (fc, n, ms = 16) => {
   fire(117); ok(fc.returning && !fc.active, "evento F6 de novo inicia o retorno");
 }
 
+// 8) limites configuráveis: a câmera livre não atravessa o mapa indefinidamente
+{
+  const bounds = { x: -10000, y: -10000, width: 20000, height: 20000 };
+  const { scene, camState, press } = makeScene();
+  const fc = new FreeCamera(scene, { bounds, freeBoundsPadding: 0, baseSpeed: 8000 });
+  fc.enable();
+
+  fc.fx = -20000;
+  camState.scrollX = -20000;
+  press(65, true); frames(fc, 120); press(65, false);
+  ok(camState.scrollX >= bounds.x - 1, `limite esquerdo respeitado (${camState.scrollX.toFixed(0)} px)`);
+
+  const maxX = bounds.x + bounds.width - camState.width / camState.zoom;
+  fc.fx = 20000;
+  camState.scrollX = 20000;
+  press(68, true); frames(fc, 120); press(68, false);
+  ok(camState.scrollX <= maxX + 1, `limite direito respeitado (${camState.scrollX.toFixed(0)} de ${maxX.toFixed(0)} px)`);
+}
+
 console.log(failed ? `\n${failed} FALHA(S)` : "\nTODOS OS TESTES PASSARAM");
 process.exit(failed ? 1 : 0);

@@ -13,6 +13,7 @@
                     "split:map":  "python scripts/split_map_chunks.py \u0026\u0026 python scripts/build_road_index.py",
                     "test:walls":  "node scripts/test_lot_walls.mjs",
                     "test:freecam":  "node scripts/test_free_camera.mjs",
+                    "test:streaming":  "node scripts/test_chunk_streaming.mjs",
                     "test:inspector":  "node scripts/test_world_inspector.mjs",
                     "test:e2e":  "node scripts/e2e_dev_tools.mjs"
                 },

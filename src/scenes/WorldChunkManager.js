@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 import { toWorld, polygonBounds, polygonCentroid, getFeaturePolygons } from "../utils/geometry.js";
 import { WALL_CFG, buildRoadSegments, planLotWall, mixColor } from "./lotWalls.js";
+import ChunkStreamingManager from "./ChunkStreamingManager.js";
+import WorldLODManager from "./WorldLODManager.js";
 
 const PPM = 16;
 const CHUNK_SIZE = 512;
@@ -270,12 +272,32 @@ export default class WorldChunkManager {
   constructor(scene, mapData) {
     this.scene = scene;
     this.mapData = mapData;
+    // Construções ficam temporariamente ocultas enquanto a arte residencial é refeita.
+    // ?buildings=1 permite comparar a camada antiga sem alterar os dados do mapa.
+    this.showBuildings = typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("buildings") === "1";
     this.chunkSize = mapData.chunkManifest.chunk_size_px || CHUNK_SIZE;
     this.marginChunks = 1;
     this.available = new Set(mapData.chunkManifest.chunks);
     this.loaded = new Map();
     this.lastWindow = "";
     this.chunkWindow = null;
+    this.streaming = new ChunkStreamingManager({
+      maxConcurrentLoads: 3,
+      maxBuildsPerFrame: 1,
+      reserveLimit: 16
+    });
+    this.buildQueue = [];
+    this.buildBudgetMs = 6;
+    this.maxBuildStepsPerFrame = 3;
+    this.lodManager = new WorldLODManager();
+    this.visibleKeys = new Set();
+    this.prefetchKeys = new Set();
+    this.streamTick = 0;
+    this.lastCameraCenter = null;
+    this.lastPriorityCenter = null;
+    this.lastZoomBand = null;
+    this.cameraDirection = { x: 0, y: 0, strength: 0 };
     this.buildingCollision = [];
     this.wallCollision = [];
     this.treeCollision = [];
@@ -290,7 +312,18 @@ export default class WorldChunkManager {
     this.lotWallGeometryCache = new Map();
     this.lotWallPlans = new Map();
     this.wallRoadSegments = buildRoadSegments(mapData.roadIndex || []);
-    this.loadingCount = 0;
+  }
+
+  get loadingCount() {
+    return this.streaming.loadingCount;
+  }
+
+  get queuedCount() {
+    return this.streaming.queuedCount;
+  }
+
+  get readyCount() {
+    return this.streaming.readyCount;
   }
 
   key(cx, cy) {
@@ -306,9 +339,10 @@ export default class WorldChunkManager {
     };
   }
 
-  addWorldObject(chunk, object) {
+  addWorldObject(chunk, object, lodLayer = null) {
     if (!object) return object;
     chunk.objects.push(object);
+    if (lodLayer) this.lodManager.register(chunk, lodLayer, object);
     this.scene.hudCamera?.ignore(object);
     return object;
   }
@@ -326,7 +360,7 @@ export default class WorldChunkManager {
         if (!Number.isFinite(bounds.minX)) continue;
         const item = { feature, polygons, bounds };
         record[type].push(item);
-        if (type === "buildings") {
+        if (type === "buildings" && this.showBuildings) {
           polygons.forEach((polygon, index) => {
             if (polygon[0]?.length < 3) return;
             record.collisions.push(makeCollision(item, polygon, index));
@@ -390,50 +424,102 @@ export default class WorldChunkManager {
     this.scene.treeCollision = this.treeCollision;
   }
   async loadChunkData(chunk) {
-    if (!this.available.has(chunk.key)) {
-      chunk.state = "empty";
-      return;
-    }
-
     const controller = new AbortController();
     chunk.controller = controller;
     chunk.state = "loading";
-    this.loadingCount++;
 
     try {
       const response = await fetch(
-        `${this.mapData.chunkBaseUrl}${chunk.key}.json`,
-        { cache: "no-store", signal: controller.signal }
+        `${this.mapData.chunkBaseUrl}${chunk.key}.json?v=${this.mapData.chunkCacheKey || "map-v1"}`,
+        { cache: "force-cache", signal: controller.signal }
       );
       if (!response.ok) {
         throw new Error(`Chunk ${chunk.key}: HTTP ${response.status}`);
       }
       const raw = await response.json();
       if (this.loaded.get(chunk.key) !== chunk || controller.signal.aborted) return;
-
-      const record = this.normalizeRecord(raw);
-      chunk.record = record;
       chunk.state = "ready";
-      const rect = this.makeRect(chunk.cx, chunk.cy);
-      this.drawBlocks(chunk, record, rect);
-      this.drawLots(chunk, record, rect);
-      this.drawRoads(chunk, record, rect);
-      this.drawLotWalls(chunk, record, rect);
-      this.drawLabels(chunk, record);
-      this.drawBuildings(chunk, record, rect);
-      this.drawTrees(chunk, record, rect);
-      this.syncCollisionArrays();
+      this.streaming.pushReady(chunk, raw);
     } catch (error) {
       if (error.name !== "AbortError") {
         chunk.state = "error";
         console.error("[AraÃ§atexas] Falha ao carregar chunk:", chunk.key, error);
       }
     } finally {
-      this.loadingCount = Math.max(0, this.loadingCount - 1);
+      this.streaming.completeLoad();
       if (chunk.controller === controller) chunk.controller = null;
     }
   }
 
+  pumpLoadQueue() {
+    while (this.streaming.canStartLoad) {
+      const chunk = this.streaming.startNextLoad();
+      if (!chunk) break;
+      if (this.loaded.get(chunk.key) !== chunk || chunk.state !== "queued") {
+        this.streaming.completeLoad();
+        continue;
+      }
+      this.loadChunkData(chunk);
+    }
+  }
+
+  processReadyChunks() {
+    // Transfere respostas para uma fila que continua respeitando a prioridade atual.
+    const ready = this.streaming.takeReady(this.streaming.readyCount);
+    for (const entry of ready) {
+      const { chunk, raw } = entry;
+      if (this.loaded.get(chunk.key) !== chunk || chunk.state !== "ready") continue;
+      chunk.state = "building";
+      chunk.buildRaw = raw;
+      chunk.buildStage = 0;
+      this.buildQueue.push(chunk);
+    }
+
+    const startedAt = performance.now();
+    let steps = 0;
+    let collisionDataChanged = false;
+    const stages = [
+      chunk => { chunk.record = this.normalizeRecord(chunk.buildRaw); chunk.buildRect = this.makeRect(chunk.cx, chunk.cy); },
+      chunk => this.drawBlocks(chunk, chunk.record, chunk.buildRect),
+      chunk => this.drawLots(chunk, chunk.record, chunk.buildRect),
+      chunk => this.drawRoads(chunk, chunk.record, chunk.buildRect),
+      chunk => this.drawLotWalls(chunk, chunk.record, chunk.buildRect),
+      chunk => this.drawLabels(chunk, chunk.record),
+      chunk => this.drawBuildings(chunk, chunk.record, chunk.buildRect),
+      chunk => this.drawTrees(chunk, chunk.record)
+    ];
+
+    while (this.buildQueue.length && steps < this.maxBuildStepsPerFrame &&
+        (steps === 0 || performance.now() - startedAt < this.buildBudgetMs)) {
+      this.buildQueue.sort((a, b) =>
+        (a.priorityTier ?? 2) - (b.priorityTier ?? 2) ||
+        (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER)
+      );
+      const chunk = this.buildQueue.shift();
+      if (this.loaded.get(chunk.key) !== chunk || chunk.state !== "building") continue;
+      try {
+        stages[chunk.buildStage](chunk);
+        chunk.buildStage++;
+        steps++;
+        if (chunk.buildStage >= stages.length) {
+          chunk.state = "loaded";
+          delete chunk.buildRaw;
+          delete chunk.buildRect;
+          delete chunk.buildStage;
+          this.lodManager.applyChunk(chunk);
+          collisionDataChanged = true;
+        } else {
+          this.buildQueue.push(chunk);
+        }
+      } catch (error) {
+        chunk.state = "error";
+        delete chunk.buildRaw;
+        this.buildQueue = this.buildQueue.filter(item => item !== chunk);
+        console.error("[Araçatexas] Falha ao montar chunk:", chunk.key, error);
+      }
+    }
+    if (collisionDataChanged) this.syncCollisionArrays();
+  }
   createChunk(cx, cy) {
     const key = this.key(cx, cy);
     const rect = this.makeRect(cx, cy);
@@ -442,7 +528,12 @@ export default class WorldChunkManager {
       objects: [],
       record: null,
       collisions: [],
-      state: "ground",
+      lodLayers: {},
+      buildingsRendered: false,
+      priority: Number.MAX_SAFE_INTEGER,
+      lastUsedAt: this.streamTick,
+      role: "prefetch",
+      state: this.available.has(key) ? "queued" : "empty",
       controller: null
     };
     const groundKey = this.scene.v4Preview ? "v4-ground-grass" : "grass-ground-v2";
@@ -452,13 +543,14 @@ export default class WorldChunkManager {
       groundKey
     ).setOrigin(0).setDepth(-100);
     if (this.scene.v4Preview) ground.setTileScale(0.5, 0.5);
-    this.addWorldObject(chunk, ground);
+    this.addWorldObject(chunk, ground, "terrain");
     this.loaded.set(key, chunk);
-    this.loadChunkData(chunk);
     return chunk;
   }
 
   destroyChunk(chunk) {
+    this.buildQueue = this.buildQueue.filter(item => item !== chunk);
+    this.streaming.remove(chunk.key);
     chunk.controller?.abort();
     for (const object of chunk.objects) object.destroy();
     chunk.objects.length = 0;
@@ -466,6 +558,12 @@ export default class WorldChunkManager {
     chunk.collisions = null;
     chunk.state = "unloaded";
     this.loaded.delete(chunk.key);
+  }
+
+  getChunkDistance(chunk, centerX, centerY) {
+    const x = chunk.rect.minX + this.chunkSize / 2 - centerX;
+    const y = chunk.rect.minY + this.chunkSize / 2 - centerY;
+    return Math.hypot(x, y);
   }
 
   updateVisible(force = false) {
@@ -483,29 +581,148 @@ export default class WorldChunkManager {
           maxY: (player?.y || 0) + viewHeight / 2
         };
 
-    const margin = this.chunkSize * this.marginChunks;
-    const minCx = Math.floor((viewBounds.minX - margin) / this.chunkSize);
-    const minCy = Math.floor((viewBounds.minY - margin) / this.chunkSize);
-    const maxCx = Math.floor((viewBounds.maxX + margin) / this.chunkSize);
-    const maxCy = Math.floor((viewBounds.maxY + margin) / this.chunkSize);
+    this.streamTick++;
+    const centerX = (viewBounds.minX + viewBounds.maxX) / 2;
+    const centerY = (viewBounds.minY + viewBounds.maxY) / 2;
+    if (this.lastCameraCenter) {
+      const dx = centerX - this.lastCameraCenter.x;
+      const dy = centerY - this.lastCameraCenter.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > 0.5) {
+        this.cameraDirection = {
+          x: dx / distance,
+          y: dy / distance,
+          // Detecta também deslocamentos modestos por quadro (zoom alto ou FPS baixo).
+          strength: Math.min(1, distance / 6)
+        };
+      } else {
+        this.cameraDirection.strength *= 0.82;
+      }
+    }
+    this.lastCameraCenter = { x: centerX, y: centerY };
+
+    const visibleMinCx = Math.floor(viewBounds.minX / this.chunkSize);
+    const visibleMinCy = Math.floor(viewBounds.minY / this.chunkSize);
+    const visibleMaxCx = Math.floor(viewBounds.maxX / this.chunkSize);
+    const visibleMaxCy = Math.floor(viewBounds.maxY / this.chunkSize);
+    // Mantém uma faixa de segurança ao redor da tela em qualquer zoom.
+    // Em zoom distante, a câmera percorre mais mundo por quadro e não pode ficar sem chunks na borda.
+    const marginChunks = Math.max(1, this.marginChunks);
+    const margin = this.chunkSize * marginChunks;
+    let minCx = Math.floor((viewBounds.minX - margin) / this.chunkSize);
+    let minCy = Math.floor((viewBounds.minY - margin) / this.chunkSize);
+    let maxCx = Math.floor((viewBounds.maxX + margin) / this.chunkSize);
+    let maxCy = Math.floor((viewBounds.maxY + margin) / this.chunkSize);
+
+    // Acrescenta uma faixa de pré-carregamento à frente do movimento recente.
+    if (this.cameraDirection.strength > 0.15) {
+      if (this.cameraDirection.x > 0.35) maxCx++;
+      else if (this.cameraDirection.x < -0.35) minCx--;
+      if (this.cameraDirection.y > 0.35) maxCy++;
+      else if (this.cameraDirection.y < -0.35) minCy--;
+    }
     const signature = `${minCx}:${minCy}:${maxCx}:${maxCy}`;
-    if (!force && signature === this.lastWindow) return;
+    const zoomBand = camera.zoom < 0.30 ? 0 : camera.zoom < 0.55 ? 1 : 2;
+    const priorityTravel = this.lastPriorityCenter
+      ? Math.hypot(centerX - this.lastPriorityCenter.x, centerY - this.lastPriorityCenter.y)
+      : Infinity;
+    const shouldReschedule = force || signature !== this.lastWindow ||
+      zoomBand !== this.lastZoomBand || priorityTravel >= this.chunkSize * 0.2;
+
+    // Em quadros parados, só processa respostas e mantém a fila andando.
+    // A busca, ordenação e política de retenção rodam quando a janela muda,
+    // o zoom cruza uma faixa ou a câmera percorre distância relevante.
+    if (!shouldReschedule) {
+      this.lodManager.update(camera.zoom, this.loaded.values());
+      this.processReadyChunks();
+      this.pumpLoadQueue();
+      return;
+    }
+
     this.lastWindow = signature;
+    this.lastPriorityCenter = { x: centerX, y: centerY };
+    this.lastZoomBand = zoomBand;
     this.chunkWindow = { minCx, minCy, maxCx, maxCy };
 
-    const needed = new Set();
+    const visible = new Set();
+    const active = new Set();
     for (let cy = minCy; cy <= maxCy; cy++) {
       for (let cx = minCx; cx <= maxCx; cx++) {
         const key = this.key(cx, cy);
-        needed.add(key);
-        if (!this.loaded.has(key)) this.createChunk(cx, cy);
+        const isVisible = cx >= visibleMinCx && cx <= visibleMaxCx &&
+          cy >= visibleMinCy && cy <= visibleMaxCy;
+        active.add(key);
+        if (isVisible) visible.add(key);
+
+        let chunk = this.loaded.get(key);
+        if (!chunk) chunk = this.createChunk(cx, cy);
+        chunk.lastUsedAt = this.streamTick;
+
+        const distance = this.getChunkDistance(chunk, centerX, centerY);
+        const offsetX = chunk.rect.minX + this.chunkSize / 2 - centerX;
+        const offsetY = chunk.rect.minY + this.chunkSize / 2 - centerY;
+        const forward = offsetX * this.cameraDirection.x + offsetY * this.cameraDirection.y;
+        const isAhead = !isVisible &&
+          this.cameraDirection.strength > 0.15 &&
+          forward > this.chunkSize * 0.15;
+
+        // Prioridade em três níveis, sem misturar distância com importância:
+        // 0 = já está na tela; 1 = pré-carregamento à frente; 2 = restante.
+        chunk.role = isVisible ? "visible" : isAhead ? "ahead" : "prefetch";
+        chunk.priorityTier = isVisible ? 0 : isAhead ? 1 : 2;
+        const directionalBias = isAhead
+          ? Math.max(0, forward) * 0.35 * this.cameraDirection.strength
+          : 0;
+        chunk.priority = Math.max(0, distance - directionalBias);
+
+        if (chunk.state === "queued") {
+          this.streaming.enqueue(chunk, chunk.priority, chunk.priorityTier);
+        } else {
+          this.streaming.reprioritize(key, chunk.priority, chunk.priorityTier);
+        }
       }
     }
 
-    for (const chunk of [...this.loaded.values()]) {
-      if (!needed.has(chunk.key)) this.destroyChunk(chunk);
+    this.visibleKeys = visible;
+    this.prefetchKeys = active;
+
+    // Retain only the closest already-built chunks outside the active window.
+    // Pending/in-flight chunks outside the window are cancelled instead of wasting bandwidth.
+    const outside = [...this.loaded.values()].filter(chunk =>
+      !active.has(chunk.key)
+    );
+    const retainable = outside.filter(chunk =>
+      chunk.state === "loaded" || chunk.state === "ready"
+    );
+    retainable.sort((a, b) => {
+      const distance = this.getChunkDistance(a, centerX, centerY) -
+        this.getChunkDistance(b, centerX, centerY);
+      return distance || b.lastUsedAt - a.lastUsedAt;
+    });
+    const reserveLimit = camera.zoom < 0.30 ? 4
+      : camera.zoom < 0.55 ? 8
+      : camera.zoom < 0.85 ? 12
+      : this.streaming.config.reserveLimit;
+    const reserve = new Set(retainable
+      .slice(0, reserveLimit)
+      .map(chunk => chunk.key));
+
+    let evicted = false;
+    for (const chunk of outside) {
+      if (!reserve.has(chunk.key)) {
+        this.destroyChunk(chunk);
+        evicted = true;
+      } else {
+        chunk.role = "reserve";
+        chunk.priorityTier = 3;
+        chunk.priority = this.getChunkDistance(chunk, centerX, centerY);
+      }
     }
-    this.syncCollisionArrays();
+    if (evicted) this.syncCollisionArrays();
+
+    this.lodManager.update(camera.zoom, this.loaded.values());
+    this.processReadyChunks();
+    this.pumpLoadQueue();
   }
 
   getCollisionCandidates(x, y, radius = 12) {
@@ -884,7 +1101,7 @@ export default class WorldChunkManager {
         .setDepth(31)
         .setMask(geometryMask);
       property.setFlipX(((seed + i) & 1) === 1);
-      this.addWorldObject(chunk, property);
+      this.addWorldObject(chunk, property, "properties");
     }
 
     this.addWorldObject(chunk, maskGraphics);
@@ -920,14 +1137,19 @@ export default class WorldChunkManager {
     maskGraphics.fillPoints(outer.map(point => new Phaser.Geom.Point(point.x, point.y)), true, true);
     maskGraphics.setVisible(false);
     const geometryMask = maskGraphics.createGeometryMask();
+    // A forma simples fica por baixo da textura e continua visível nos LODs distantes.
+    const silhouette = this.scene.add.graphics().setDepth(31);
+    silhouette.fillStyle(palette.roof[seed % palette.roof.length], 1);
+    silhouette.fillPoints(outer.map(point => new Phaser.Geom.Point(point.x, point.y)), true, true);
     const roof = this.scene.add.tileSprite(center.x, center.y, longSide, shortSide, textureKey)
       .setOrigin(0.5, 0.5).setRotation(angle).setDepth(31).setMask(geometryMask);
     roof.setTileScale(0.5, 0.5);
+    this.addWorldObject(chunk, silhouette);
     const outline = this.scene.add.graphics().setDepth(32);
     outline.lineStyle(2, 0x342f2b, 0.92);
     this.drawClippedRing(outline, outer, rect);
     this.addWorldObject(chunk, maskGraphics);
-    this.addWorldObject(chunk, roof);
+    this.addWorldObject(chunk, roof, "roofDetails");
     this.addWorldObject(chunk, outline);
   }
 
@@ -960,15 +1182,19 @@ export default class WorldChunkManager {
     );
     maskGraphics.setVisible(false);
     const geometryMask = maskGraphics.createGeometryMask();
+    const silhouette = this.scene.add.graphics().setDepth(31);
+    silhouette.fillStyle(palette.roof[seed % palette.roof.length], 1);
+    silhouette.fillPoints(outer.map(point => new Phaser.Geom.Point(point.x, point.y)), true, true);
     const roof = this.scene.add.tileSprite(
       center.x, center.y, longSide, shortSide, textureKey
     ).setOrigin(0.5, 0.5).setRotation(angle).setDepth(31).setMask(geometryMask);
+    this.addWorldObject(chunk, silhouette);
 
     const outline = this.scene.add.graphics().setDepth(32);
     outline.lineStyle(2, 0x342f2b, 0.9);
     this.drawClippedRing(outline, outer, rect);
     this.addWorldObject(chunk, maskGraphics);
-    this.addWorldObject(chunk, roof);
+    this.addWorldObject(chunk, roof, "roofDetails");
     this.addWorldObject(chunk, outline);
   }
 
@@ -1324,7 +1550,9 @@ export default class WorldChunkManager {
   }
 
   drawBuildings(chunk, record, rect) {
-    if (!record.buildings.length) return;
+    chunk.buildingsRendered = false;
+    if (!this.showBuildings || !record.buildings.length) return;
+    chunk.buildingsRendered = true;
     const g = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(30));
     let roofOutlineGraphics = null;
     for (const item of record.buildings) {
@@ -1347,6 +1575,15 @@ export default class WorldChunkManager {
         ].includes(type) || /residential/.test(type);
 
         if (isHouse) {
+          // Retain a cheap footprint so LOD 3 can hide the complete property sprite
+          // without making the building disappear from the distant city view.
+          const footprint = clipRing(outer, rect);
+          if (footprint.length >= 3) {
+            g.fillStyle(shade, 1);
+            g.fillPoints(footprint.map(point => new Phaser.Geom.Point(point.x, point.y)), true, true);
+            g.lineStyle(1.5, 0x342f2b, 0.82);
+            this.drawClippedRing(g, outer, rect);
+          }
           if (this.scene.v4Preview) {
             this.drawV4PreviewRoof(chunk, outer, center, rect, seed, "house");
             continue;
@@ -1456,7 +1693,7 @@ export default class WorldChunkManager {
             if (this.scene.v4Preview) roofFill.setTileScale(0.5, 0.5);
 
             this.addWorldObject(chunk, maskGraphics);
-            this.addWorldObject(chunk, roofFill);
+            this.addWorldObject(chunk, roofFill, "roofDetails");
 
             if (!roofOutlineGraphics) {
               roofOutlineGraphics = this.addWorldObject(
@@ -1520,7 +1757,7 @@ export default class WorldChunkManager {
 
   drawTrees(chunk, record) {
     if (!record.trees.length) return;
-    const g = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(45));
+    const g = this.addWorldObject(chunk, this.scene.add.graphics().setDepth(45), "foliage");
     for (const item of record.trees) {
       const p = item.point;
       const radius = item.radius;
@@ -1545,7 +1782,7 @@ export default class WorldChunkManager {
         color: "#eee3ba", stroke: "#252e2a", strokeThickness: 3,
         backgroundColor: "#303b35a0", padding: { x: 3, y: 1 }
       }).setOrigin(0.5).setDepth(10).setAlpha(0.78);
-      this.addWorldObject(chunk, object);
+      this.addWorldObject(chunk, object, "labels");
     }
   }
 }

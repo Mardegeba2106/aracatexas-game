@@ -387,6 +387,10 @@ export default class WorldScene extends Phaser.Scene {
     const activeObjects = objects.filter(object => object.active !== false).length;
     const visibleFlags = objects.filter(object => object.visible !== false).length;
     const graphicsObjects = objects.filter(object => object.type === "Graphics").length;
+    const chunks = this.chunkManager;
+    const reserveChunks = chunks
+      ? [...chunks.loaded.values()].filter(chunk => chunk.role === "reserve").length
+      : 0;
     const camera = this.cameras.main;
     const view = camera.worldView;
     const counts = this.mapData.meta?.counts || {};
@@ -407,7 +411,8 @@ export default class WorldScene extends Phaser.Scene {
       `FPS mín/máx 5s: ${metrics.minFps.toFixed(1)} / ${metrics.maxFps.toFixed(1)}`,
       `Quadro médio/pico: ${metrics.frameMs.toFixed(1)} / ${metrics.maxFrameMs.toFixed(1)} ms`,
       `Objetos: ${totalObjects} total · ${activeObjects} ativos · ${visibleFlags} habilitados`,
-      `Graphics: ${graphicsObjects} objetos · chunks ${this.chunkManager?.loaded.size || 0} ativos · ${this.chunkManager?.loadingCount || 0} carregando`,
+      `Graphics: ${graphicsObjects} objetos · chunks ${chunks?.loaded.size || 0} residentes · ${chunks?.loadingCount || 0} baixando · ${chunks?.queuedCount || 0} na fila · ${chunks?.readyCount || 0} prontos · ${chunks?.buildQueue.length || 0} construindo`,
+      `Streaming: ${chunks?.visibleKeys.size || 0} visíveis · ${reserveChunks} em reserva · LOD ${chunks?.lodManager.level ?? 0}`,
       `Mapa: ${buildings} edifícios · ${trees} árvores · ${roads} vias`,
       `Terrenos: ${lots} lotes · ${blocks} quadras`,
       `Colisões carregadas: ${this.buildingCollision.length} edifícios · ${this.treeCollision?.length || 0} árvores`,
@@ -422,6 +427,10 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   isBlocked(x, y) {
+    // A câmera livre não é uma entidade física; não precisa consultar colisões.
+    // A colisão do personagem volta a ser aplicada assim que o modo é encerrado.
+    if (this.devFreeCam?.blocksPlayer === true) return false;
+
     const samples = [
       { x, y: y + 5 }, { x: x - PLAYER_RADIUS, y: y + 5 },
       { x: x + PLAYER_RADIUS, y: y + 5 }, { x, y: y + 5 - PLAYER_RADIUS }
@@ -466,6 +475,8 @@ export default class WorldScene extends Phaser.Scene {
     this.updatePerformance(delta);
     this.devFreeCam?.update(delta);
     this.devInspector?.update(delta);
+    // O streaming continua trabalhando mesmo com o mapa expandido aberto ou sem jogador.
+    this.chunkManager?.updateVisible();
     if (this.debugKey && Phaser.Input.Keyboard.JustDown(this.debugKey)) {
       this.togglePerformancePanel();
     }
@@ -510,7 +521,6 @@ export default class WorldScene extends Phaser.Scene {
       if (touchInteract) touch.interact = false;
     }
 
-    this.chunkManager?.updateVisible();
     this.updateMinimapPlayer();
     if (this.toast.visible && this.time.now > this.toastUntil) this.toast.setVisible(false);
   }

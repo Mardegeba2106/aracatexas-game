@@ -193,7 +193,8 @@ export function pickRoad(manager, p) {
 
 // Clique: construção > muro > árvore > rua > lote.
 export function pickObject(manager, p) {
-  return pickBuilding(manager, p) || pickWall(manager, p) || pickTree(manager, p)
+  const building = manager.showBuildings === false ? null : pickBuilding(manager, p);
+  return building || pickWall(manager, p) || pickTree(manager, p)
     || pickRoad(manager, p) || pickLot(manager, p);
 }
 

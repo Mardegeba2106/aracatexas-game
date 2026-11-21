@@ -2,6 +2,7 @@
 """Divide map.json em arquivos espaciais carregados sob demanda pelo jogo."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -198,8 +199,12 @@ def write_chunks(map_data):
         path.write_text(encoded, encoding="utf-8")
         total_bytes += path.stat().st_size
 
+    cache_version = hashlib.sha256(
+        SOURCE.read_bytes() + Path(__file__).read_bytes()
+    ).hexdigest()[:16]
     manifest = {
         "version": 1,
+        "cache_version": cache_version,
         "chunk_size_m": CHUNK_METERS,
         "chunk_size_px": int(CHUNK_METERS * 16),
         "meta": map_data["meta"],

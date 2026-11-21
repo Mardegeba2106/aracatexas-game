@@ -303,7 +303,7 @@ export class WorldInspector {
     this.selTxt = text();
     this.rows = [
       ["lot", "Lote sob o cursor", "L"], ["grid", "Grade de coordenadas", "G"],
-      ["collisions", "Colisões", "C"], ["chunks", "Limites de chunks", "K"]
+      ["collisions", "Exibir colisões", "C"], ["chunks", "Limites de chunks", "K"]
     ].map(([key, label, hotkey]) => {
       const row = text("#bfe3ff").setInteractive({ useHandCursor: true });
       row.on("pointerdown", () => this.toggle(key));

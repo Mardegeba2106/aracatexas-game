@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const URL = process.argv[2] || "http://127.0.0.1:5173/?v4preview=1&inspector=grid,collisions,chunks";
+const URL = process.argv[2] || "http://127.0.0.1:5173/?v4preview=1&inspector=grid,chunks";
 const OUT = process.env.TEMP || os.tmpdir();
 const chromePaths = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -93,7 +93,8 @@ try {
   const st = await evalJs(`(() => { const s = window.__araScene, i = s.devInspector;
     return { open: i.open, toggles: i.toggles, canvasW: s.scale.width, canvasH: s.scale.height, zoom: s.cameras.main.zoom,
       loaded: s.chunkManager.loaded.size, panel: i.panelRect, player: [s.player.x, s.player.y] }; })()`);
-  note(st.open === true && st.toggles.grid && st.toggles.collisions && st.toggles.chunks, `painel abre pelo preset da URL com grade, colisoes e chunks ligados (${JSON.stringify(st.toggles)})`);
+  note(st.open === true && st.toggles.grid && !st.toggles.collisions && st.toggles.chunks,
+    `Inspector inicia com visualizacao de colisoes desligada (${JSON.stringify(st.toggles)})`);
   console.log("ESTADO", JSON.stringify(st));
 
   // F7 fecha e reabre
@@ -110,6 +111,16 @@ try {
   const p0 = await evalJs("[window.__araScene.player.x, window.__araScene.player.y]");
   await tap("F6", 117);
   note(await evalJs("window.__araScene.devFreeCam.active") === true, "F6 ativa a camera livre");
+  const freeCameraCollision = await evalJs(`(() => {
+    const s = window.__araScene, checks = s.performanceMetrics.collisionChecks;
+    const blocked = s.isBlocked(s.player.x, s.player.y);
+    return { blocked, checksBefore: checks, checksAfter: s.performanceMetrics.collisionChecks,
+      retained: (s.buildingCollision?.length || 0) + (s.wallCollision?.length || 0) + (s.treeCollision?.length || 0) };
+  })()`);
+  note(freeCameraCollision.blocked === false &&
+    freeCameraCollision.checksBefore === freeCameraCollision.checksAfter,
+    `camera livre ignora colisao fisica sem executar consultas (${JSON.stringify(freeCameraCollision)})`);
+  note(freeCameraCollision.retained > 0, "geometrias de colisao continuam carregadas para o personagem e o Inspector");
   const c0 = await evalJs("[window.__araScene.cameras.main.scrollX, window.__araScene.cameras.main.scrollY]");
   await key("KeyD", 68, true, { key: "d", text: "d" }); await sleep(900); await key("KeyD", 68, false, { key: "d" });
   await key("KeyW", 87, true, { key: "w", text: "w" }); await sleep(500); await key("KeyW", 87, false, { key: "w" });
@@ -118,16 +129,46 @@ try {
   note(c1[0] - c0[0] > 20 && c1[1] < c0[1] - 10, `WASD move a camera na direcao certa (dx ${Math.round(c1[0] - c0[0])}, dy ${Math.round(c1[1] - c0[1])})`);
   note(p0[0] === p1[0] && p0[1] === p1[1], "o personagem nao se moveu com a camera livre ativa");
 
-  // centraliza num predio carregado e testa hover / clique / info
-  const target = await evalJs(`(() => { const s = window.__araScene, mgr = s.chunkManager, cam = s.cameras.main; let best = null;
-    for (const c of mgr.loaded.values()) for (const b of c.record?.buildings || []) {
-      const r = b.polygons[0]?.[0]; if (!r || r.length < 4) continue;
-      const area = b.feature.area_m2 || 0; if (area < 60 || area > 400) continue;
-      const cx = (Math.min(...r.map(p => p.x)) + Math.max(...r.map(p => p.x))) / 2, cy = (Math.min(...r.map(p => p.y)) + Math.max(...r.map(p => p.y))) / 2;
-      if (!best || Math.hypot(cx - cam.scrollX, cy - cam.scrollY) < best.d) best = { cx, cy, id: b.feature.id, d: Math.hypot(cx - cam.scrollX, cy - cam.scrollY) };
+  const hiddenBuildings = await evalJs(`(() => {
+    const s = window.__araScene, m = s.chunkManager, chunks = [...m.loaded.values()];
+    return {
+      enabled: m.showBuildings,
+      mapDataRetained: chunks.some(c => (c.record?.buildings?.length || 0) > 0),
+      anyRendered: chunks.some(c => c.buildingsRendered),
+      buildingCollisions: s.buildingCollision?.length || 0
+    };
+  })()`);
+  note(hiddenBuildings.enabled === false && hiddenBuildings.mapDataRetained &&
+    hiddenBuildings.anyRendered === false && hiddenBuildings.buildingCollisions === 0,
+    `construcoes ocultas, dados preservados e sem colisao invisivel (${JSON.stringify(hiddenBuildings)})`);
+
+  // centraliza num lote vazio e testa hover / clique / info sem edificios visuais
+  const target = await evalJs(`(() => {
+    const s = window.__araScene, mgr = s.chunkManager, cam = s.cameras.main;
+    const inside = (p, ring) => {
+      let hit = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if ((a.y > p.y) !== (b.y > p.y) &&
+            p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) hit = !hit;
+      }
+      return hit;
+    };
+    let best = null;
+    for (const c of mgr.loaded.values()) for (const lot of c.record?.lots || []) {
+      const ring = lot.polygons[0]?.[0]; if (!ring || ring.length < 4) continue;
+      const p = { x: ring.reduce((sum, q) => sum + q.x, 0) / ring.length,
+        y: ring.reduce((sum, q) => sum + q.y, 0) / ring.length };
+      if (!inside(p, ring)) continue;
+      const occupied = c.record.buildings.some(b => b.polygons.some(poly => poly[0] && inside(p, poly[0])));
+      if (occupied) continue;
+      const d = Math.hypot(p.x - cam.scrollX, p.y - cam.scrollY);
+      if (!best || d < best.d) best = { cx: p.x, cy: p.y, id: lot.feature.id, d };
     }
-    if (best) cam.centerOn(best.cx, best.cy); return best; })()`);
-  note(!!target, `achou uma casa carregada para inspecionar (${target?.id})`);
+    if (best) cam.centerOn(best.cx, best.cy);
+    return best;
+  })()`);
+  note(!!target, `achou um lote vazio para inspecionar (${target?.id})`);
   await sleep(500);
   const cam = await evalJs("(() => { const c = window.__araScene.cameras.main; return { z: c.zoom, w: c.width, h: c.height }; })()");
   const cx = cam.w / 2 - 120, cy = cam.h / 2;      // centro da tela, deslocado para longe do painel
@@ -135,20 +176,20 @@ try {
   await sleep(500);
   await move(cx, cy); await sleep(350);
   const hover = await evalJs(`(() => { const i = window.__araScene.devInspector; return i.hover ? { kind: i.hover.kind, id: i.hover.item.feature.id } : null; })()`);
-  note(hover?.kind === "lot", `passar o mouse sobre o terreno destaca um lote (${hover?.id})`);
-  console.log("PNG", await shot("02_hover_lote"));
+  note(hover?.kind === "lot" && hover.id === target.id, `passar o mouse destaca o lote sem edifício (${hover?.kind} ${hover?.id})`);
+  console.log("PNG", await shot("02_hover_lote_sem_construcoes"));
 
   await click(cx, cy);
   const sel = await evalJs(`(() => { const i = window.__araScene.devInspector; return i.selected ? { kind: i.selected.kind, id: i.selected.item?.feature?.id, text: i.selTxt.text } : null; })()`);
-  note(sel?.kind === "building" && sel.id === target.id, `clique seleciona a construcao certa (${sel?.kind} ${sel?.id})`);
-  note(/chunk/.test(sel?.text || "") && /id/.test(sel?.text || ""), "painel mostra id e chunk da construcao");
-  console.log("PNG", await shot("03_construcao_selecionada"));
+  note(sel?.kind === "lot" && sel.id === target.id, `clique seleciona o lote certo (${sel?.kind} ${sel?.id})`);
+  note(/chunk/.test(sel?.text || "") && /id/.test(sel?.text || ""), "painel mostra id e chunk do lote");
+  console.log("PNG", await shot("03_lote_selecionado"));
 
-  // colisoes: desliga e liga pela tecla C
+  // colisoes: habilita apenas sob demanda e desabilita novamente pela tecla C
   await tap("KeyC", 67, { key: "c" }); let col = await evalJs("window.__araScene.devInspector.toggles.collisions");
-  note(col === false, "tecla C desliga a visualizacao de colisoes");
+  note(col === true, "tecla C ativa a visualizacao de colisoes sob demanda");
   await tap("KeyC", 67, { key: "c" }); col = await evalJs("window.__araScene.devInspector.toggles.collisions");
-  note(col === true, "tecla C liga de novo");
+  note(col === false, "tecla C desativa novamente a visualizacao de colisoes");
 
   // medidor: dois cliques -> distancia em metros
   await tap("KeyR", 82, { key: "r" });
@@ -170,6 +211,81 @@ try {
     return { zoom: s.cameras.main.zoom, labels: i.labels.filter(l => l.visible).length }; })()`);
   note(gridInfo.labels <= 40, `zoom ${gridInfo.zoom.toFixed(2)}: ${gridInfo.labels} rotulos de grade visiveis (nao fica denso)`);
   console.log("PNG", await shot("05_zoom_afastado"));
+
+  const lodCheck = await evalJs(`(() => {
+    const s = window.__araScene, m = s.chunkManager;
+    const sample = [...m.loaded.values()].find(c => c.state === "loaded" && c.lodLayers);
+    return {
+      level: m.lodManager.level,
+      labelsHidden: sample ? (sample.lodLayers.labels || []).every(o => !o.visible) : false,
+      roofTexturesHidden: sample ? (sample.lodLayers.roofDetails || []).every(o => !o.visible) : false,
+      propertiesVisible: sample ? (sample.lodLayers.properties || []).every(o => o.visible) : false
+    };
+  })()`);
+  note(lodCheck.level === 2 && lodCheck.labelsHidden && lodCheck.roofTexturesHidden,
+    `LOD intermediario reduz rotulos e texturas de telhado sem remover a silhueta (${JSON.stringify(lodCheck)})`);
+
+  await evalJs("window.__araScene.devFreeCam.zoomAt(0.25, 640, 360)");
+  await sleep(700);
+  const farLod = await evalJs(`(() => {
+    const m = window.__araScene.chunkManager;
+    const sample = [...m.loaded.values()].find(c => c.state === "loaded" && c.lodLayers);
+    return { level: m.lodManager.level, foliageHidden: sample ? (sample.lodLayers.foliage || []).every(o => !o.visible) : false };
+  })()`);
+  note(farLod.level === 3 && farLod.foliageHidden,
+    `LOD distante simplifica vegetacao sem alterar colisao (${JSON.stringify(farLod)})`);
+
+  await evalJs("window.__araScene.devFreeCam.zoomAt(1.12, 640, 360)");
+  await sleep(500);
+  const streamStart = await evalJs(`(() => {
+    const s = window.__araScene, m = s.chunkManager;
+    return { size: m.loaded.size, ready: [...m.loaded.values()].filter(c => c.state === "loaded").length, peakLoading: m.streaming.peakLoadingCount };
+  })()`);
+  await evalJs(`(() => {
+    const s = window.__araScene, c = s.cameras.main, f = s.devFreeCam, m = s.chunkManager;
+    f.fx = c.scrollX + m.chunkSize * 2.6;
+    f.fy = c.scrollY;
+    f.applyFreeBounds();
+    c.scrollX = f.fx;
+    c.scrollY = f.fy;
+    m.updateVisible(true);
+  })()`);
+  const streamPriority = await evalJs(`(() => {
+    const m = window.__araScene.chunkManager, chunks = [...m.loaded.values()];
+    return {
+      ahead: chunks.filter(c => c.role === "ahead").length,
+      visible: [...m.visibleKeys].every(k => m.loaded.get(k)?.priorityTier === 0),
+      aheadTier: chunks.filter(c => c.role === "ahead").every(c => c.priorityTier === 1),
+      prefetchTier: chunks.filter(c => c.role === "prefetch").every(c => c.priorityTier === 2)
+    };
+  })()`);
+  await sleep(3500);
+  const streamMoved = await evalJs(`(() => {
+    const s = window.__araScene, m = s.chunkManager;
+    const chunks = [...m.loaded.values()];
+    return {
+      visiblePresent: [...m.visibleKeys].every(k => m.loaded.has(k)),
+      reserve: chunks.filter(c => c.role === "reserve" && c.state === "loaded").length,
+      ahead: chunks.filter(c => c.role === "ahead").length,
+      visiblePriorityOk: [...m.visibleKeys].every(k => m.loaded.get(k)?.priorityTier === 0),
+      aheadPriorityOk: chunks.filter(c => c.role === "ahead").every(c => c.priorityTier === 1),
+      prefetchPriorityOk: chunks.filter(c => c.role === "prefetch").every(c => c.priorityTier === 2),
+      loaded: chunks.filter(c => c.state === "loaded").length,
+      pending: m.queuedCount,
+      loading: m.loadingCount,
+      peakLoading: m.streaming.peakLoadingCount,
+      ready: m.readyCount,
+      lod: m.lodManager.level
+    };
+  })()`);
+  note(streamMoved.visiblePresent, `nenhum chunk visivel foi descartado apos deslocamento (${JSON.stringify(streamMoved)})`);
+  note(streamMoved.loading <= 3 && streamMoved.peakLoading <= 3, `limite de 3 requisicoes simultaneas respeitado (pico ${streamMoved.peakLoading}, ativas ${streamMoved.loading})`);
+  note(streamMoved.reserve > 0, `chunks anteriores permanecem em reserva (${streamMoved.reserve})`);
+  note(streamPriority.ahead > 0 && streamPriority.visible && streamPriority.aheadTier &&
+    streamPriority.prefetchTier,
+    `prioridade de construcao: visiveis, a frente, demais (${JSON.stringify(streamPriority)})`);
+  note(streamMoved.lod === 0, `LOD retorna ao nivel detalhado ao aproximar (${streamMoved.lod})`);
+  console.log("STREAM", JSON.stringify({ start: streamStart, moved: streamMoved }));
 
   // FPS x zoom, com as camadas do inspetor LIGADAS e DESLIGADAS (renderizacao por software: vale o relativo)
   const sweep = async label => {

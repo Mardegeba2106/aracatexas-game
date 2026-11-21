@@ -31,8 +31,19 @@ export async function loadPreparedMap() {
     console.warn("[Aracatexas] roads-index.json ausente; muros de lote desativados. Rode npm run split:map.", error);
   }
 
+  // A versão do cache acompanha a origem e os totais do mapa. Quando o mapa for
+  // regenerado, os URLs dos chunks mudam e o navegador baixa os arquivos novos.
+  const chunkCacheKey = encodeURIComponent(manifest.cache_version || [
+    manifest.meta.osm_base_timestamp || "map",
+    manifest.chunk_count || manifest.chunks.length,
+    manifest.meta.counts?.roads || 0,
+    manifest.meta.counts?.lots || 0,
+    manifest.meta.counts?.buildings || 0
+  ].join("-"));
+
   return {
     meta: manifest.meta,
+    chunkCacheKey,
     roads: minimap.roads,
     roadIndex,
     chunkManifest: manifest,

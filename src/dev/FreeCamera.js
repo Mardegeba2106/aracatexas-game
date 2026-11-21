@@ -33,8 +33,10 @@ export const FREE_CAMERA_DEFAULTS = {
   maxZoom: 4,
   returnMs: 650,       // duração mínima do retorno suave até o personagem
   returnMaxMs: 1800,   // a duração cresce com a distância, até este máximo
+  hudRefreshIntervalMs: 125,
+  freeBoundsPadding: 160, // pequena margem para inspecionar além da borda preparada
   pixelsPerMeter: 16,
-  bounds: null         // {x, y, width, height} a restaurar ao sair (limites do mundo)
+  bounds: null         // {x, y, width, height} usados no limite livre e restaurados ao sair
 };
 
 export class FreeCamera {
@@ -50,6 +52,8 @@ export class FreeCamera {
     this.fx = 0;
     this.fy = 0;
     this.hudText = "";
+    this.hudRefreshElapsedMs = 0;
+    this.hudDirty = true;
     this._prev = {};
 
     const keyboard = scene.input?.keyboard;
@@ -108,6 +112,7 @@ export class FreeCamera {
     this.fx = cam.scrollX;
     this.fy = cam.scrollY;
     this.active = true;
+    this.applyFreeBounds();
     this.scene.player?.anims?.stop?.(); // o personagem fica parado onde estava
     this.refreshHud(true);
   }
@@ -162,8 +167,29 @@ export class FreeCamera {
     cam.setZoom(z1);
     this.fx = wx - w / 2 + w / (2 * z1) - sx / z1;
     this.fy = wy - h / 2 + h / (2 * z1) - sy / z1;
+    this.applyFreeBounds();
     cam.scrollX = this.fx;
     cam.scrollY = this.fy;
+    this.hudDirty = true;
+  }
+
+  applyFreeBounds() {
+    const bounds = this.cfg.bounds;
+    if (!this.active || !bounds) return;
+    const cam = this.camera;
+    const padding = Math.max(0, this.cfg.freeBoundsPadding || 0);
+    const viewWidth = cam.width / Math.max(0.1, cam.zoom);
+    const viewHeight = cam.height / Math.max(0.1, cam.zoom);
+    const minX = bounds.x - padding;
+    const minY = bounds.y - padding;
+    const maxX = bounds.x + bounds.width + padding - viewWidth;
+    const maxY = bounds.y + bounds.height + padding - viewHeight;
+    this.fx = maxX < minX
+      ? bounds.x + bounds.width / 2 - viewWidth / 2
+      : clamp(this.fx, minX, maxX);
+    this.fy = maxY < minY
+      ? bounds.y + bounds.height / 2 - viewHeight / 2
+      : clamp(this.fy, minY, maxY);
   }
 
   onWheel(pointer, _over, _dx, dy) {
@@ -194,24 +220,35 @@ export class FreeCamera {
 
     if (this.active) {
       const cam = this.camera;
-      this.syncFromCamera();
-      const dt = Math.min(deltaMs, 50) / 1000;
+      const dt = Math.min(Math.max(0, deltaMs || 0), 50) / 1000;
       const k = this.keys;
-      let dx = (k.D?.isDown ? 1 : 0) - (k.A?.isDown ? 1 : 0);
-      let dy = (k.S?.isDown ? 1 : 0) - (k.W?.isDown ? 1 : 0);
-      const len = Math.hypot(dx, dy);
-      if (len > 0) {
-        dx /= len; dy /= len;                       // diagonal sem ficar mais rápida
+      const dxInput = (k.D?.isDown ? 1 : 0) - (k.A?.isDown ? 1 : 0);
+      const dyInput = (k.S?.isDown ? 1 : 0) - (k.W?.isDown ? 1 : 0);
+
+      // Não sincroniza nem calcula distância quando nenhuma direção está pressionada.
+      if (dxInput !== 0 || dyInput !== 0) {
+        this.syncFromCamera();
+        const length = Math.hypot(dxInput, dyInput);
+        const dx = dxInput / length;
+        const dy = dyInput / length;
         const boost = k.SHIFT?.isDown ? this.cfg.shiftBoost : 1;
         const step = (this.speed * boost / cam.zoom) * dt;
         this.fx += dx * step;
         this.fy += dy * step;
+        this.applyFreeBounds();
         cam.scrollX = this.fx;
         cam.scrollY = this.fy;
+        this.hudDirty = true;
       }
 
-      if (slower) this.speed = clamp(this.speed / this.cfg.speedStep, this.cfg.minSpeed, this.cfg.maxSpeed);
-      if (faster) this.speed = clamp(this.speed * this.cfg.speedStep, this.cfg.minSpeed, this.cfg.maxSpeed);
+      if (slower) {
+        this.speed = clamp(this.speed / this.cfg.speedStep, this.cfg.minSpeed, this.cfg.maxSpeed);
+        this.hudDirty = true;
+      }
+      if (faster) {
+        this.speed = clamp(this.speed * this.cfg.speedStep, this.cfg.minSpeed, this.cfg.maxSpeed);
+        this.hudDirty = true;
+      }
 
       const zoomIn = k.PLUS?.isDown || k.NUM_ADD?.isDown;
       const zoomOut = k.MINUS?.isDown || k.NUM_SUB?.isDown;
@@ -221,7 +258,15 @@ export class FreeCamera {
       }
       if (resetPressed && this.savedZoom) this.zoomAt(this.savedZoom, cam.width / 2, cam.height / 2);
     }
-    this.refreshHud();
+    this.updateHud(deltaMs);
+  }
+
+  // Interface tem cadência própria; movimento e zoom continuam sendo processados por quadro.
+  updateHud(deltaMs) {
+    if (!this.hudDirty) return;
+    this.hudRefreshElapsedMs += Math.max(0, Math.min(deltaMs || 0, 1000));
+    if (this.hudRefreshElapsedMs < this.cfg.hudRefreshIntervalMs) return;
+    this.refreshHud(true);
   }
 
   // -------------------------------------------------------------------- HUD
@@ -273,6 +318,8 @@ export class FreeCamera {
     const text = this.buildHudText();
     if (!force && text === this.hudText) return;
     this.hudText = text;
+    this.hudDirty = false;
+    this.hudRefreshElapsedMs = 0;
     if (!this.hudLabel) return;
     this.hudLabel.setText(text);
     this.fitBackground();
