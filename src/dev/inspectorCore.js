@@ -266,7 +266,7 @@ export function describeObject(sel, manager) {
     add("chunk", sel.chunkKey);
     const skip = [
       "id", "zone", "area_m2", "name", "building_type",
-      "polygon_indices", "full_polygon_indices", "source_polygons", "chunk_clipped"
+      "polygon_indices", "full_polygon_indices", "source_polygons", "chunk_clipped", "wall_skip"
     ];
     for (const [k, v] of featureProps(f, skip, 6)) add(k, v);
     if (sel.kind === "lot") {

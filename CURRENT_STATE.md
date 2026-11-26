@@ -82,3 +82,10 @@ Não começar vários sistemas grandes em paralelo. Manter entregas pequenas, te
 - O World Editor compartilha a camada da cena. Storages com a identidade antiga do mapa são ignorados para não reaplicar IDs de edifícios removidos; novas edições passam a ser salvas com a identidade atual.
 - Testes: `npm.cmd run test:editor`; com Vite ativo, `npm.cmd run test:editor:ui`.
 - O teste de navegador do World Editor valida a camada limpa e a coexistência independente dos painéis F7 (Inspector) e F8 (Editor). A lógica de edição/undo/redo segue coberta pelos testes unitários.
+
+## Divisão de lotes passantes (nova)
+- Lotes regulares que atravessam a quadra foram divididos no meio da profundidade em duas metades, cada uma com frente para uma rua (mínimos: 18 m de profundidade, 8 m de largura, 200 m² por metade). Resultado no mapa atual: 837 lotes divididos (1.674 terrenos), 231 preservados e 273 especiais.
+- Lotes irregulares ficam como especiais, sem muro automático (`wall_policy: "none"`), à espera de tratamento próprio.
+- Divisas compartilhadas têm um único muro (dono = menor ID): a sobreposição de muros entre lotes caiu de ~30% para ~0%.
+- Pendências conhecidas: 101 terrenos sem plano de muro por regras antigas do `planLotWall` (anel inválido, recuo não converge, lote estreito); validação visual em GPU; faixas afuniladas hoje classificadas como especiais podem ser reavaliadas.
+- Comandos: `npm run split:lots`, `npm run test:data`, `npm run test:ownership`.

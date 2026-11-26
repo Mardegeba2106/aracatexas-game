@@ -7,6 +7,8 @@ O comando gera:
 - world-manifest.json: metadados e lista de chunks disponíveis.
 - minimap.json: geometria simplificada das vias para o minimapa.
 - chunks/: arquivos regionais carregados sob demanda pelo jogo.
+- lot-split-report.json: parâmetros e contagens da divisão de lotes passantes (não é carregado pelo jogo).
+- wall-ownership.json: divisas compartilhadas cedidas ao vizinho dono (um muro por divisa); só vale para o map.json de mesmo hash.
 
 O jogo não carrega map.json diretamente. Ele mantém o manifesto e o minimapa e busca apenas os chunks próximos da câmera. Não apague a pasta chunks/ depois de preparar o mapa.
 O mapa não é preenchido com geometrias fictícias.

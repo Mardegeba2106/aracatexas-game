@@ -15,11 +15,13 @@
 ## 2. Pipeline de dados do mapa
 Scripts relevantes:
 - `scripts/prepare_map.py`: transforma dados de origem do Knoxify e cache OpenStreetMap para o formato usado pelo jogo.
-- `scripts/split_map_chunks.py`: divide os dados preparados em arquivos por chunk.
+- `scripts/split_through_lots.py`: divide os lotes que atravessam a quadra de rua a rua em duas metades e marca os lotes irregulares como especiais (ver "Divisão de lotes passantes").
+- `scripts/split_map_chunks.py`: divide os dados preparados em arquivos por chunk (e aplica `wall-ownership.json`, se válido).
+- `scripts/compute_wall_ownership.mjs`: calcula o dono de cada divisa compartilhada (um muro por divisa).
 - `scripts/build_road_index.py`: gera o índice de vias usado no cálculo de muros/recuos.
 - `scripts/generate_assets.py`: gera recursos visuais procedurais.
 
-O comando `npm run prepare:map` executa a preparação, a divisão em chunks e a geração do índice de vias. O resultado observado em `public/data` inclui:
+O comando `npm run prepare:map` executa a preparação e depois `npm run split:lots` (divisão dos lotes, chunks, índice de vias e posse dos muros). O resultado observado em `public/data` inclui:
 - `world-manifest.json`
 - `minimap.json`
 - `roads-index.json`
@@ -97,6 +99,9 @@ A cena carrega tiles/sprites e recursos de `public/assets`. Há conjuntos reside
 - `npm run preview`: prévia do build.
 - `npm run prepare:map`: prepara o mapa, chunks e índice de vias.
 - `npm run split:map`: refaz chunks e índice de vias.
+- `npm run split:lots`: divide os lotes passantes, refaz chunks/índice e recalcula a posse dos muros (idempotente).
+- `npm run test:data` também cobre a divisão de lotes (`tests/test_split_through_lots.py`).
+- `npm run test:ownership`: testes de muros por divisa única e terrenos especiais.
 - `npm run test:data`: testes Python dos dados.
 - `npm run test:walls`: teste de muros/lotes.
 - `npm run test:freecam`: testes da câmera livre.
@@ -123,3 +128,12 @@ Esses itens pertencem à visão futura. Antes de implementar, planeje uma fatia 
 - WorldInspector (F7) continua sendo somente leitura. Os dois painéis podem ficar abertos ao mesmo tempo.
 - As alterações locais e os arquivos JSON exportados são vinculados à chave de cache dos chunks. Importar uma edição de outro mapa é recusado.
 - O Modo Construção permanece reservado; a colocação/renderização de novos objetos não faz parte desta integração.
+
+## Divisão de lotes passantes e muros por divisa única
+Regras (constantes `RULES` em `scripts/split_through_lots.py`): o lote que vai de uma rua à rua oposta e tem formato regular (retangular, trapezoidal ou polígono regular) é cortado no meio da profundidade, paralelo às frentes, em duas metades (`<id>_a`, `<id>_b`), cada uma com frente para uma rua. Mínimos por metade: profundidade 18 m, largura 8 m, área 200 m². Abaixo disso o lote é preservado. Lote de formato irregular não é dividido e recebe `lot_kind: "special"` e `wall_policy: "none"`: não tem muro automático (tratamento especial futuro).
+
+Propriedades novas dos lotes em `map.json`/chunks: `lot_kind` (`split` | `special`), `parent_lot_id`, `split_side`, `wall_policy`, `wall_skip`. `public/data/lot-split-report.json` guarda os parâmetros e as contagens (não é carregado pelo jogo).
+
+Um muro por divisa: `scripts/compute_wall_ownership.mjs` planeja os muros com o próprio `planLotWall` e, onde dois lotes têm muro na mesma divisa, o de menor ID é o dono; o outro recebe em `wall-ownership.json` (e depois em `wall_skip` nos chunks) o trecho a ceder. `planLotWall(ring, { skipSegs })` remove esses trechos (`skipIntervals`/`subtractIntervals`). Vizinho especial ou sem plano nunca cede. O arquivo é amarrado ao hash do `map.json`; `split_map_chunks.py` o ignora, com aviso, se o hash não bater. Se `lotWalls.js` mudar, rode `npm run split:lots` e `node scripts/compute_wall_ownership.mjs --check`.
+
+Pontos de atenção: o `map_version` muda (as edições locais do World Editor deixam de valer, por desenho) e o baseline `src/data/world-mods.default.json` precisa acompanhar o `map_version` do manifesto; os IDs `wall:<lote>:...` do editor passam a usar os IDs novos dos lotes.

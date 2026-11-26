@@ -282,6 +282,50 @@ function deficitPoints(a, b, field, cfg) {
  * @param ctx      { roadSegs, seed, blockSeed, cfg? }
  * @returns {ok:true, ...plano} ou {ok:false, reason}
  */
+// ---- Divisas compartilhadas -------------------------------------------------
+// Quando dois lotes vizinhos têm muro na mesma divisa, só um deles (o "dono") desenha.
+// O outro recebe em `ctx.skipSegs` os trechos que deve ceder ({a,b} em px). Calculado
+// offline por scripts/compute_wall_ownership.mjs e guardado em `wall_skip` no lote.
+export const SKIP_TOLERANCE_PX = 3;
+
+// Intervalos [t0,t1] da aresta ca->cb cobertos por algum segmento de skipSegs.
+export function skipIntervals(ca, cb, skipSegs, tol = SKIP_TOLERANCE_PX) {
+  const len = Math.hypot(cb.x - ca.x, cb.y - ca.y);
+  if (!skipSegs?.length || len < 1e-6) return [];
+  const ux = (cb.x - ca.x) / len, uy = (cb.y - ca.y) / len;
+  const perp = p => Math.abs((p.x - ca.x) * uy - (p.y - ca.y) * ux);
+  const along = p => ((p.x - ca.x) * ux + (p.y - ca.y) * uy) / len;
+  const out = [];
+  for (const s of skipSegs) {
+    if (perp(s.a) > tol || perp(s.b) > tol) continue;
+    const t0 = Math.max(0, Math.min(along(s.a), along(s.b)));
+    const t1 = Math.min(1, Math.max(along(s.a), along(s.b)));
+    if (t1 - t0 > 1e-6) out.push([t0, t1]);
+  }
+  out.sort((x, y) => x[0] - y[0]);
+  const merged = [];
+  for (const iv of out) {
+    const last = merged[merged.length - 1];
+    if (last && iv[0] <= last[1] + 1e-6) last[1] = Math.max(last[1], iv[1]);
+    else merged.push([iv[0], iv[1]]);
+  }
+  return merged;
+}
+
+export function subtractIntervals(pieces, cover) {
+  let out = pieces.map(p => [p[0], p[1]]);
+  for (const [c0, c1] of cover) {
+    const next = [];
+    for (const [p0, p1] of out) {
+      if (c1 <= p0 || c0 >= p1) { next.push([p0, p1]); continue; }
+      if (c0 > p0) next.push([p0, c0]);
+      if (c1 < p1) next.push([c1, p1]);
+    }
+    out = next;
+  }
+  return out;
+}
+
 export function planLotWall(ringSrc, ctx) {
   const cfg = ctx.cfg || WALL_CFG;
   let ring = cleanRing(ringSrc, 4, cfg.minEdgePx);
@@ -424,8 +468,10 @@ export function planLotWall(ringSrc, ctx) {
     const ca = center[i], cb = center[(i + 1) % n];
     const oa = outer[i], ob = outer[(i + 1) % n];
     const ia = inner[i], ib = inner[(i + 1) % n];
-    const pieces = gate && gate.edge === i
+    let pieces = gate && gate.edge === i
       ? [[0, gate.t0], [gate.t1, 1]] : [[0, 1]];
+    // Divisa compartilhada: o vizinho dono desenha este trecho; aqui ele é cedido.
+    if (ctx.skipSegs?.length) pieces = subtractIntervals(pieces, skipIntervals(ca, cb, ctx.skipSegs));
     const side = Math.abs(e.n.x);
     const shade = 1 - 0.14 * side;
     addPillar(ca, pal, i);

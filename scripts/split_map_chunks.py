@@ -407,10 +407,32 @@ def add_trees(chunks, trees):
         chunks.setdefault((cx, cy), empty_chunk(cx, cy))["trees"].append(tree)
 
 
-def write_chunks(map_data):
+OWNERSHIP_PATH = DATA_DIR / "wall-ownership.json"
+
+
+def load_wall_ownership(map_hash):
+    """Divisas cedidas ao vizinho dono (um muro por divisa). Só vale se o hash do mapa bater."""
+    if not OWNERSHIP_PATH.exists():
+        return {}, b""
+    raw = OWNERSHIP_PATH.read_bytes()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        print("AVISO: wall-ownership.json inválido; ignorado.")
+        return {}, b""
+    if data.get("source_map_hash") != map_hash:
+        print("AVISO: wall-ownership.json é de outro mapa; ignorado. Rode npm run split:lots.")
+        return {}, b""
+    return data.get("skips", {}), raw
+
+
+def write_chunks(map_data, wall_skips=None, ownership_bytes=b""):
     chunks = {}
+    wall_skips = wall_skips or {}
     for layer in ("blocks", "lots", "buildings"):
         for feature in map_data.get(layer, []):
+            if layer == "lots" and feature.get("id") in wall_skips:
+                feature = {**feature, "wall_skip": wall_skips[feature["id"]]}
             add_feature(chunks, layer, feature)
     add_roads(chunks, map_data.get("roads", []))
     add_trees(chunks, map_data.get("trees", []))
@@ -428,9 +450,9 @@ def write_chunks(map_data):
         total_bytes += path.stat().st_size
 
     source_bytes = SOURCE.read_bytes()
-    source_hash = hashlib.sha256(source_bytes).hexdigest()[:16]
+    source_hash = hashlib.sha256(source_bytes + ownership_bytes).hexdigest()[:16]
     cache_version = hashlib.sha256(
-        source_bytes + Path(__file__).read_bytes()
+        source_bytes + ownership_bytes + Path(__file__).read_bytes()
     ).hexdigest()[:16]
 
     # Na primeira migra??o, preserve a identidade antiga do mapa para n?o
@@ -492,7 +514,9 @@ def main():
     missing = [key for key in required if key not in map_data]
     if missing:
         raise ValueError(f"map.json incompleto: {', '.join(missing)}")
-    write_chunks(map_data)
+    map_hash = hashlib.sha256(SOURCE.read_bytes()).hexdigest()[:16]
+    wall_skips, ownership_bytes = load_wall_ownership(map_hash)
+    write_chunks(map_data, wall_skips, ownership_bytes)
 
 
 if __name__ == "__main__":

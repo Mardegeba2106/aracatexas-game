@@ -1387,6 +1387,11 @@ export default class WorldChunkManager {
     const lotId = item.feature?.id ?? "lote";
     const key = String(lotId) + ":" + String(polygonIndex);
     if (this.lotWallPlans.has(key)) return this.lotWallPlans.get(key);
+    // Terreno especial (formato irregular): sem muro automático, à espera de tratamento próprio.
+    if (item.feature?.wall_policy === "none") {
+      this.lotWallPlans.set(key, null);
+      return null;
+    }
     let plan = null;
     let polygon = sourcePolygon || item.sourcePolygons?.get(polygonIndex) || null;
 
@@ -1401,8 +1406,14 @@ export default class WorldChunkManager {
 
     // Nunca calcule um muro sobre um fragmento parcial.
     if (polygon && polygon.length === 1 && polygon[0].length >= 4) {
+      // `wall_skip`: trechos de divisa cedidos ao vizinho dono (um muro por divisa), em metros.
+      const skipSegs = (item.feature?.wall_skip || []).map(([a, b]) => ({
+        a: { x: a[0] * PPM, y: -a[1] * PPM },
+        b: { x: b[0] * PPM, y: -b[1] * PPM }
+      }));
       const result = planLotWall(polygon[0], {
         roadSegs: this.wallRoadSegments,
+        skipSegs,
         seed: hash(lotId),
         blockSeed: hash(item.feature?.block_id ?? item.feature?.block ?? "")
       });

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "rules": {
+    "min_half_depth_m": 18.0,
+    "min_width_m": 8.0,
+    "min_half_area_m2": 200.0,
+    "street_edge_fraction": 0.8,
+    "street_edge_tolerance_m": 0.6,
+    "min_edge_m": 3.0,
+    "min_street_edge_m": 5.0,
+    "max_front_angle_deg": 25.0,
+    "min_rectangularity": 0.92,
+    "max_vertices": 6,
+    "simplify_m": 0.4
+  },
+  "lots_before": 1341,
+  "lots_after": 2178,
+  "dividido": 837,
+  "novos_terrenos": 1674,
+  "preservado": 231,
+  "especial": 273,
+  "ja_processado": 0,
+  "motivos": {
+    "especial: forma irregular": 273,
+    "preservado: abaixo do mínimo: largura": 31,
+    "preservado: abaixo do mínimo: largura, área": 10,
+    "preservado: abaixo do mínimo: profundidade": 11,
+    "preservado: abaixo do mínimo: profundidade, largura, área": 6,
+    "preservado: abaixo do mínimo: profundidade, área": 54,
+    "preservado: abaixo do mínimo: área": 4,
+    "preservado: frentes não paralelas": 47,
+    "preservado: não atravessa a quadra": 68
+  }
+}
